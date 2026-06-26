@@ -1,0 +1,6 @@
+{
+  "name": "Hemraj Group Personal Travel Desk",
+  "description": "Comprehensive travel indent and traveler assignment desk for Hemraj Group with dynamic forms and database modeling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,706 @@
+{
+  "employees": [
+    {
+      "employee_code": "EMP-1002",
+      "aadhar_pan_number": "AP-1002",
+      "name": "Satish Sharma",
+      "email": "satish.sharma@hemrajgroup.com",
+      "phone": "+91 98765 43210",
+      "designation": "General Manager (Purchasing)",
+      "department": "Purchase",
+      "default_travel_approver": "Rohit ji (COO)",
+      "approver_designation": "Chief Operating Officer",
+      "cost_centre": "HEM-PUR-MUM",
+      "default_billing_currency": "INR",
+      "native_city": "Mumbai, Maharashtra",
+      "nearest_airport": "Chhatrapati Shivaji Maharaj Airport",
+      "nearest_railway_station": "Mumbai CST",
+      "default_mode_of_transport": "Flight",
+      "extra_baggage_required": false
+    },
+    {
+      "employee_code": "EMP-2045",
+      "aadhar_pan_number": "AP-2045",
+      "name": "Tosin Alabi",
+      "email": "tosin.alabi@hemrajgroup.com",
+      "phone": "+234 803 123 4567",
+      "designation": "Head of Operations (West Africa)",
+      "department": "Ops",
+      "default_travel_approver": "Department Head",
+      "approver_designation": "VP Overseas Operations",
+      "cost_centre": "HEM-OPS-NGA",
+      "default_billing_currency": "NGN",
+      "present_location_abroad": "Lagos, Nigeria",
+      "assigned_plant_site": "Ricefield",
+      "nearest_airport_india": "Indira Gandhi International Airport, Delhi",
+      "passport_number": "A08539201",
+      "passport_issue_date": "2024-02-15",
+      "passport_expiry": "2029-02-14",
+      "polio_vaccine_status": "Vaccinated",
+      "polio_certificate_expiry": "2027-02-15",
+      "yfv_status": "Vaccinated",
+      "yfv_certificate_expiry": "2028-06-12",
+      "visa_number": "V394850",
+      "visa_expiry_date": "2026-12-31",
+      "visa_country": "India"
+    },
+    {
+      "employee_code": "EMP-3001",
+      "aadhar_pan_number": "AP-3001",
+      "name": "Arjun Singh",
+      "email": "arjun.singh@hemrajgroup.com",
+      "phone": "+91 91234 56789",
+      "designation": "Sales Manager",
+      "department": "Sales",
+      "default_travel_approver": "Satish Sharma (Supervisor L1)",
+      "approver_designation": "General Manager (Purchasing)",
+      "cost_centre": "HEM-SAL-DEL",
+      "default_billing_currency": "INR",
+      "native_city": "Delhi, India",
+      "nearest_airport": "Indira Gandhi International Airport, Delhi",
+      "nearest_railway_station": "New Delhi Railway Station",
+      "default_mode_of_transport": "Flight",
+      "extra_baggage_required": true
+    },
+    {
+      "employee_code": "EMP-3002",
+      "aadhar_pan_number": "AP-3002",
+      "name": "Priya Patel",
+      "email": "priya.patel@hemrajgroup.com",
+      "phone": "+91 99876 54321",
+      "designation": "HR Coordinator",
+      "department": "HR",
+      "default_travel_approver": "Rohit ji (COO)",
+      "approver_designation": "Chief Operating Officer",
+      "cost_centre": "HEM-HR-MUM",
+      "default_billing_currency": "INR",
+      "native_city": "Mumbai, Maharashtra",
+      "nearest_airport": "Chhatrapati Shivaji Maharaj Airport",
+      "nearest_railway_station": "Mumbai CST",
+      "default_mode_of_transport": "Train",
+      "extra_baggage_required": false
+    },
+    {
+      "employee_code": "EMP-3003",
+      "aadhar_pan_number": "AP-3003",
+      "name": "Nitin Gupta",
+      "email": "nitin.gupta@hemrajgroup.com",
+      "phone": "+91 99999 88888",
+      "designation": "Sales Executive",
+      "department": "Sales",
+      "default_travel_approver": "Satish Sharma (Supervisor L1)",
+      "approver_designation": "General Manager (Purchasing)",
+      "cost_centre": "HEM-SAL-PUN",
+      "default_billing_currency": "INR",
+      "native_city": "Pune, Maharashtra",
+      "nearest_airport": "Pune International Airport",
+      "nearest_railway_station": "Pune Junction",
+      "default_mode_of_transport": "Flight",
+      "extra_baggage_required": false
+    }
+  ],
+  "indents": [
+    {
+      "id": "IND-2026-0001",
+      "travel_type": "DOMESTIC",
+      "gst_applicable": true,
+      "priority": "HIGH",
+      "travel_date": "2026-06-25",
+      "wp_number": "WP-MUM-9844",
+      "nearest_boarding_point": "Andheri East, Mumbai Office",
+      "luggage": "20 kg check-in, 7 kg cabin",
+      "visa_type": "N/A",
+      "seat_preference": "WINDOW",
+      "meal_preference": "VEG",
+      "source_location": "Mumbai (BOM)",
+      "destination": "Delhi (DEL)",
+      "purpose": "Urgent procurement audit for the Maharashtra machinery plant division.",
+      "employee_code": "EMP-1002",
+      "created_at": "2026-06-10T10:00:00.000Z",
+      "employeeName": "Satish Sharma",
+      "employeeDept": "Purchase",
+      "employeeDesignation": "General Manager (Purchasing)",
+      "voided": true,
+      "void_reason": "ngn cancel n al"
+    },
+    {
+      "id": "IND-2026-0002",
+      "travel_type": "INTERNATIONAL",
+      "gst_applicable": false,
+      "priority": "CRITICAL",
+      "travel_date": "2026-07-02",
+      "wp_number": "WA-LAG-4835",
+      "nearest_boarding_point": "Lagos Executive Suite",
+      "luggage": "2 x 23 kg",
+      "visa_type": "EMPLOYMENT",
+      "seat_preference": "AISLE",
+      "meal_preference": "NON_VEG",
+      "source_location": "Lagos (LOS)",
+      "destination": "Mumbai (BOM)",
+      "purpose": "Quarterly alignment with Rohit ji & Directors regarding the Ricefield plant scaling operations.",
+      "employee_code": "EMP-2045",
+      "created_at": "2026-06-11T12:30:00.000Z"
+    },
+    {
+      "id": "IND-2026-0003",
+      "travel_type": "DOMESTIC",
+      "gst_applicable": true,
+      "priority": "MEDIUM",
+      "travel_date": "2026-07-15",
+      "wp_number": "WP-DEL-1122",
+      "nearest_boarding_point": "Delhi Office",
+      "luggage": "15 kg",
+      "visa_type": "N/A",
+      "seat_preference": "ANY",
+      "meal_preference": "VEG",
+      "source_location": "Delhi (DEL)",
+      "destination": "Bangalore (BLR)",
+      "purpose": "Sales review meeting.",
+      "employee_code": "EMP-3001",
+      "created_at": "2026-06-12T09:00:00.000Z"
+    },
+    {
+      "id": "IND-2026-0004",
+      "travel_type": "DOMESTIC",
+      "gst_applicable": true,
+      "priority": "HIGH",
+      "travel_date": "2026-06-28",
+      "wp_number": "WP-MUM-4455",
+      "nearest_boarding_point": "Andheri, Mumbai",
+      "luggage": "15 kg",
+      "visa_type": "N/A",
+      "seat_preference": "WINDOW",
+      "meal_preference": "VEG",
+      "source_location": "Mumbai (BOM)",
+      "destination": "Delhi (DEL)",
+      "purpose": "Machinery inspection and vendor finance negotiation.",
+      "employee_code": "EMP-1002",
+      "created_at": "2026-06-12T15:00:00.000Z"
+    },
+    {
+      "id": "IND-2026-0005",
+      "travel_type": "INTERNATIONAL",
+      "gst_applicable": false,
+      "priority": "CRITICAL",
+      "travel_date": "2026-07-05",
+      "wp_number": "WA-LAG-8899",
+      "nearest_boarding_point": "Lagos Suite L3",
+      "luggage": "2 x 23 kg",
+      "visa_type": "EMPLOYMENT",
+      "seat_preference": "AISLE",
+      "meal_preference": "NON_VEG",
+      "source_location": "Lagos (LOS)",
+      "destination": "Mumbai (BOM)",
+      "purpose": "Ricefield expansion financial planning with leadership board.",
+      "employee_code": "EMP-2045",
+      "created_at": "2026-06-13T08:00:00.000Z"
+    },
+    {
+      "id": "IND-2026-0006",
+      "travel_type": "DOMESTIC",
+      "gst_applicable": true,
+      "priority": "MEDIUM",
+      "travel_date": "2026-07-20",
+      "wp_number": "WP-PUN-3344",
+      "nearest_boarding_point": "Pune Office",
+      "luggage": "15 kg",
+      "visa_type": "N/A",
+      "seat_preference": "ANY",
+      "meal_preference": "VEG",
+      "source_location": "Pune (PNQ)",
+      "destination": "Mumbai (BOM)",
+      "purpose": "Monthly sales synchronization meeting.",
+      "employee_code": "EMP-3003",
+      "created_at": "2026-06-15T09:00:00.000Z"
+    }
+  ],
+  "jobCards": [
+    {
+      "id": "IND-2026-0004",
+      "indentId": "IND-2026-0004",
+      "travelerName": "Satish Sharma",
+      "destination": "Mumbai (BOM) → Delhi (DEL)",
+      "department": "Purchase",
+      "created_at": "2026-06-13T09:00:00.000Z",
+      "stage": "BOOKING",
+      "rfqVendors": [
+        "VND-FL-01"
+      ],
+      "quotes": [
+        {
+          "id": "Q-004-1",
+          "vendorName": "IndiGo Corporate Air Desk",
+          "amount": 10000,
+          "currency": "INR",
+          "created_at": "2026-06-13T09:15:00.000Z",
+          "isWinning": true,
+          "airline": "IndiGo",
+          "sector": "Mumbai (BOM) → Delhi (DEL)",
+          "layover": "0",
+          "travelDate": "2026-06-28",
+          "agentName": "Rahul Kumar"
+        }
+      ],
+      "winningQuoteId": "Q-004-1",
+      "approvalStatus": "APPROVED",
+      "travelApprovalStatus": "APPROVED",
+      "travelApprovedBy": "Satish Sharma (Supervisor L1)",
+      "travelApprovedAt": "2026-06-13T09:30:00.000Z",
+      "bookingPNR": "6E-BOM-DEL-2940",
+      "bookingVendor": "IndiGo Corporate Air Desk",
+      "finalBookingAmount": 12200,
+      "bookingCurrency": "INR",
+      "invoiceNumber": "INV/ Indigo/938450",
+      "invoiceVendorAmount": 12200,
+      "invoiceCurrency": "INR",
+      "gstDetailsCorrect": true,
+      "physicalInvoiceHandedOver": true,
+      "auditLogs": [
+        {
+          "timestamp": "2026-06-13T09:00:00.000Z",
+          "userId": "Travel Desk Office",
+          "action": "Job Card Opened",
+          "notes": "Job Card successfully generated for approved travel desk indent IND-2026-0004."
+        },
+        {
+          "timestamp": "2026-06-13T09:20:00.000Z",
+          "userId": "Travel Board Approver",
+          "action": "Winning Quote Approved",
+          "notes": "Approved IndiGo quote of 10000 INR."
+        },
+        {
+          "timestamp": "2026-06-13T09:45:00.000Z",
+          "userId": "Travel Desk Office",
+          "action": "Booking Record Saved",
+          "notes": "Tickets booked. PNR 6E-BOM-DEL-2940. Booking cost 12200 INR. Card moved to Finance clearance queue."
+        },
+        {
+          "timestamp": "2026-06-13T11:25:14.950Z",
+          "userId": "Corporate-Desk",
+          "action": "Finance Correction Requested",
+          "notes": "Stage: FINANCE. Explanation: \"Correction requested from Finance Desk\""
+        },
+        {
+          "timestamp": "2026-06-13T11:25:16.408Z",
+          "userId": "Corporate-Desk",
+          "action": "Finance Correction Requested",
+          "notes": "Stage: FINANCE. Explanation: \"Correction requested from Finance Desk\""
+        },
+        {
+          "timestamp": "2026-06-15T08:57:22.642Z",
+          "userId": "VP Commercial Admin",
+          "action": "Commercial Approved (Level 2 VP)",
+          "notes": "Commercial final authorization completed."
+        }
+      ],
+      "financeCleared": false,
+      "financeVarianceReason": "Correction requested from Finance Desk",
+      "commercialApprovalStatus": "APPROVED",
+      "commercialApprovedBy": "VP Commercial Admin",
+      "commercialApprovedAt": "2026-06-15T08:57:22.642Z",
+      "approvedAt": "2026-06-15T08:57:22.642Z",
+      "approverName": "VP Commercial Admin"
+    },
+    {
+      "id": "IND-2026-0005",
+      "indentId": "IND-2026-0005",
+      "travelerName": "Tosin Alabi",
+      "destination": "Lagos (LOS) → Mumbai (BOM)",
+      "department": "Ops",
+      "created_at": "2026-06-13T08:30:00.000Z",
+      "stage": "RECONCILIATION",
+      "rfqVendors": [
+        "VND-FL-02"
+      ],
+      "quotes": [
+        {
+          "id": "Q-005-1",
+          "vendorName": "Air India Business Desk",
+          "amount": 85000,
+          "currency": "INR",
+          "created_at": "2026-06-13T08:45:00.000Z",
+          "isWinning": true,
+          "airline": "Air India",
+          "sector": "Lagos (LOS) → Mumbai (BOM)",
+          "layover": "1",
+          "travelDate": "2026-07-05",
+          "agentName": "Sarah Johnson"
+        },
+        {
+          "id": "QT-761",
+          "vendorName": "yatra",
+          "amount": 500,
+          "currency": "USD",
+          "created_at": "2026-06-16T10:51:45.890Z",
+          "subCosts": [
+            {
+              "category": "FLIGHT",
+              "description": "a1",
+              "amount": 500,
+              "airline": "airindia",
+              "sector": "Lagos (LOS) - Mumbai (BOM)",
+              "layover": "Direct Flight"
+            }
+          ],
+          "airline": "airindia",
+          "sector": "Lagos (LOS) - Mumbai (BOM)",
+          "layover": "Direct Flight",
+          "travelDate": "2026-07-05",
+          "agentName": "Rohit ji (COO / VP Commercial)"
+        }
+      ],
+      "winningQuoteId": "Q-005-1",
+      "approvalStatus": "APPROVED",
+      "travelApprovalStatus": "APPROVED",
+      "travelApprovedBy": "Rohit ji (COO / VP Commercial)",
+      "travelApprovedAt": "2026-06-13T09:00:00.000Z",
+      "bookingPNR": "AI-LOS-BOM-9173",
+      "bookingVendor": "Air India Business Desk",
+      "finalBookingAmount": 86500,
+      "bookingCurrency": "INR",
+      "invoiceNumber": "AI/LAG/INV/8593",
+      "invoiceVendorAmount": 86500,
+      "invoiceCurrency": "INR",
+      "gstDetailsCorrect": true,
+      "physicalInvoiceHandedOver": true,
+      "auditLogs": [
+        {
+          "timestamp": "2026-06-13T08:30:00.000Z",
+          "userId": "Travel Desk Office",
+          "action": "Job Card Opened",
+          "notes": "Job Card successfully generated for approved travel desk indent IND-2026-0005."
+        },
+        {
+          "timestamp": "2026-06-13T09:10:00.000Z",
+          "userId": "Travel Board Approver",
+          "action": "Winning Quote Approved",
+          "notes": "Approved Air India business quote of 85000 INR."
+        },
+        {
+          "timestamp": "2026-06-13T09:30:00.000Z",
+          "userId": "Travel Desk Office",
+          "action": "Booking Record Saved",
+          "notes": "PNR AI-LOS-BOM-9173 booked. Price 86500 INR. Card moved to Finance clearance queue."
+        },
+        {
+          "timestamp": "2026-06-16T10:51:45.890Z",
+          "userId": "Corporate-Desk",
+          "action": "Quote Input Logged",
+          "notes": "Registered bid from 'yatra' value 500 USD."
+        }
+      ],
+      "financeCleared": true
+    },
+    {
+      "id": "IND-2026-0001",
+      "indentId": "IND-2026-0001",
+      "travelerName": "Satish Sharma",
+      "destination": "Mumbai (BOM) → Delhi (DEL)",
+      "department": "Purchase",
+      "created_at": "2026-06-13T10:54:32.319Z",
+      "stage": "QUOTATION",
+      "rfqVendors": [],
+      "quotes": [
+        {
+          "id": "QT-358",
+          "vendorName": "makemytrip",
+          "amount": 500,
+          "currency": "USD",
+          "created_at": "2026-06-16T10:52:22.749Z",
+          "subCosts": [
+            {
+              "category": "FLIGHT",
+              "description": "a1",
+              "amount": 500,
+              "airline": "Airindia",
+              "sector": "Mumbai (BOM) - Delhi (DEL)",
+              "layover": "Direct Flight"
+            }
+          ],
+          "airline": "Airindia",
+          "sector": "Mumbai (BOM) - Delhi (DEL)",
+          "layover": "Direct Flight",
+          "travelDate": "2026-06-25",
+          "agentName": "Rohit ji (COO / VP Commercial)"
+        },
+        {
+          "id": "QT-343",
+          "vendorName": "YATRA",
+          "amount": 400,
+          "currency": "USD",
+          "created_at": "2026-06-16T10:53:04.566Z",
+          "subCosts": [
+            {
+              "category": "FLIGHT",
+              "description": "A2",
+              "amount": 400,
+              "airline": "SAFARI",
+              "sector": "Mumbai (BOM) - Delhi (DEL)",
+              "layover": "Direct Flight"
+            }
+          ],
+          "airline": "SAFARI",
+          "sector": "Mumbai (BOM) - Delhi (DEL)",
+          "layover": "Direct Flight",
+          "travelDate": "2026-06-25",
+          "agentName": "Rohit ji (COO / VP Commercial)"
+        }
+      ],
+      "approvalStatus": "PENDING",
+      "gstDetailsCorrect": false,
+      "physicalInvoiceHandedOver": false,
+      "auditLogs": [
+        {
+          "timestamp": "2026-06-13T10:54:32.319Z",
+          "userId": "Travel Desk Office",
+          "action": "Job Card Opened",
+          "notes": "Job Card successfully generated for approved travel desk indent IND-2026-0001."
+        },
+        {
+          "timestamp": "2026-06-16T10:52:22.749Z",
+          "userId": "Corporate-Desk",
+          "action": "Quote Input Logged",
+          "notes": "Registered bid from 'makemytrip' value 500 USD with airline: N/A, agent: Rohit ji (COO / VP Commercial)."
+        },
+        {
+          "timestamp": "2026-06-16T10:53:04.566Z",
+          "userId": "Corporate-Desk",
+          "action": "Quote Input Logged",
+          "notes": "Registered bid from 'YATRA' value 400 USD."
+        }
+      ]
+    },
+    {
+      "id": "IND-2026-0002-RS1",
+      "indentId": "IND-2026-0002",
+      "travelerName": "Tosin Alabi",
+      "destination": "Lagos (LOS) → Mumbai (BOM)",
+      "department": "Ops",
+      "created_at": "2026-06-13T10:44:31.887Z",
+      "stage": "QUOTATION",
+      "rfqVendors": [],
+      "quotes": [
+        {
+          "id": "QT-627",
+          "vendorName": "Makemytrip ",
+          "amount": 500,
+          "currency": "INR",
+          "created_at": "2026-06-16T10:51:09.173Z",
+          "subCosts": [
+            {
+              "category": "FLIGHT",
+              "description": "bussiness",
+              "amount": 500,
+              "airline": "Indiago",
+              "sector": "Lagos (LOS) - Mumbai (BOM)",
+              "layover": "Direct Flight"
+            }
+          ],
+          "airline": "Indiago",
+          "sector": "Lagos (LOS) - Mumbai (BOM)",
+          "layover": "Direct Flight",
+          "travelDate": "2026-07-02",
+          "agentName": "Rohit ji (COO / VP Commercial)"
+        }
+      ],
+      "approvalStatus": "PENDING",
+      "gstDetailsCorrect": false,
+      "physicalInvoiceHandedOver": false,
+      "parentJobCardId": "IND-2026-0002",
+      "auditLogs": [
+        {
+          "timestamp": "2026-06-13T10:44:31.887Z",
+          "userId": "Corporate-Desk",
+          "action": "Job Card Opened (Rescheduled)",
+          "notes": "Rescheduled from parent travel ticket card IND-2026-0002. Process restarted from QUOTATION stage."
+        },
+        {
+          "timestamp": "2026-06-16T10:51:09.174Z",
+          "userId": "Corporate-Desk",
+          "action": "Quote Input Logged",
+          "notes": "Registered bid from 'Makemytrip ' value 500 INR."
+        }
+      ]
+    },
+    {
+      "id": "IND-2026-0002",
+      "indentId": "IND-2026-0002",
+      "travelerName": "Tosin Alabi",
+      "destination": "Lagos (LOS) → Mumbai (BOM)",
+      "department": "Ops",
+      "created_at": "2026-06-13T10:25:53.791Z",
+      "stage": "QUOTATION",
+      "rfqVendors": [],
+      "quotes": [],
+      "approvalStatus": "PENDING",
+      "gstDetailsCorrect": false,
+      "physicalInvoiceHandedOver": false,
+      "auditLogs": [
+        {
+          "timestamp": "2026-06-13T10:25:53.791Z",
+          "userId": "Travel Desk Office",
+          "action": "Job Card Opened",
+          "notes": "Job Card successfully generated for approved travel desk indent IND-2026-0002."
+        },
+        {
+          "timestamp": "2026-06-13T10:44:31.887Z",
+          "userId": "Corporate-Desk",
+          "action": "Job Card Cancelled (Rescheduled)",
+          "notes": "Cancelled due to reschedule trigger. New Card ID initiated: IND-2026-0002-RS1. Reason: test"
+        }
+      ],
+      "isCancelled": true,
+      "cancellationReason": "test",
+      "cancelledAt": "2026-06-13T10:44:31.887Z",
+      "rescheduledToCardId": "IND-2026-0002-RS1"
+    },
+    {
+      "id": "IND-2026-0003",
+      "indentId": "IND-2026-0003",
+      "travelerName": "Arjun Singh",
+      "destination": "Bangalore (BLR)",
+      "department": "Sales",
+      "created_at": "2026-06-12T09:30:00.000Z",
+      "stage": "QUOTATION",
+      "rfqVendors": [
+        "VND-FL-01"
+      ],
+      "quotes": [
+        {
+          "id": "Q-001",
+          "vendorName": "IndiGo Corporate Air Desk",
+          "amount": 10000,
+          "currency": "INR",
+          "created_at": "2026-06-12T10:00:00.000Z",
+          "isWinning": true,
+          "airline": "IndiGo",
+          "sector": "Delhi (DEL) → Bangalore (BLR)",
+          "layover": "0",
+          "travelDate": "2026-07-15",
+          "agentName": "Amit Singh"
+        },
+        {
+          "id": "QT-121",
+          "vendorName": "makemytrip",
+          "amount": 15000,
+          "currency": "INR",
+          "created_at": "2026-06-13T10:56:32.019Z"
+        }
+      ],
+      "winningQuoteId": "Q-001",
+      "approvalStatus": "PENDING",
+      "gstDetailsCorrect": true,
+      "physicalInvoiceHandedOver": true,
+      "quoted_total": 10000,
+      "actual_total": 11500,
+      "variance_percentage": 15,
+      "vendor_name": "IndiGo Corporate Air Desk",
+      "attachments_url": "https://example.com/invoice-003.pdf",
+      "auditLogs": [
+        {
+          "timestamp": "2026-06-12T09:30:00.000Z",
+          "userId": "Travel Desk Office",
+          "action": "Job Card Opened",
+          "notes": "Job Card successfully generated for approved travel desk indent IND-2026-0003."
+        },
+        {
+          "timestamp": "2026-06-13T02:00:00.000Z",
+          "userId": "Finance Controller",
+          "action": "Variance Detected",
+          "notes": "15% cost variance detected against quoted budget."
+        },
+        {
+          "timestamp": "2026-06-13T10:28:24.987Z",
+          "userId": "Travel Board Approver [Role: VP_COMMERCIAL]",
+          "action": "Travel Rejected (Level 1)",
+          "notes": "L1 travel compliance criteria verified."
+        },
+        {
+          "timestamp": "2026-06-13T10:28:47.081Z",
+          "userId": "Corporate-Desk",
+          "action": "Winning Quote Selected",
+          "notes": "Declared bid from 'IndiGo Corporate Air Desk' (10000 INR) as winning selection."
+        },
+        {
+          "timestamp": "2026-06-13T10:56:32.019Z",
+          "userId": "Corporate-Desk",
+          "action": "Quote Input Logged",
+          "notes": "Registered bid from 'makemytrip' value 15000 INR with 0 itemized subcosts."
+        },
+        {
+          "timestamp": "2026-06-13T10:56:49.316Z",
+          "userId": "Travel Board Approver [Role: VP_COMMERCIAL]",
+          "action": "Travel Approved (Level 1)",
+          "notes": "L1 travel compliance criteria verified."
+        }
+      ],
+      "travelApprovalStatus": "APPROVED",
+      "travelApprovedBy": "Travel Board Approver [Role: VP_COMMERCIAL]",
+      "travelApprovedAt": "2026-06-13T10:56:49.316Z"
+    }
+  ],
+  "rbacUsers": [
+    {
+      "id": "usr-1",
+      "name": "Subham (Workspace Operator)",
+      "email": "subham4343@gmail.com",
+      "role": "TRAVEL_DESK"
+    },
+    {
+      "id": "usr-2",
+      "name": "Satish Sharma (Supervisor L1)",
+      "email": "satish.sharma@hemrajgroup.com",
+      "role": "TRAVEL_APPROVER"
+    },
+    {
+      "id": "usr-3",
+      "name": "Rohit ji (COO / VP Commercial)",
+      "email": "rohit.ji@hemrajgroup.com",
+      "role": "VP_COMMERCIAL"
+    },
+    {
+      "id": "usr-4",
+      "name": "Tosin Alabi",
+      "email": "tosin.alabi@hemrajgroup.com",
+      "role": "TRAVEL_DESK"
+    },
+    {
+      "id": "usr-5",
+      "name": "Finance Controller",
+      "email": "finance@hemrajgroup.com",
+      "role": "FINANCE"
+    }
+  ],
+  "rbacSettings": {
+    "senderEmail": "travel-desk@hemraj-group.com",
+    "ccRecipients": "compliance-cc@hemraj-group.com, travel-archive@hemraj-group.com",
+    "activeSimulatedEmail": "satish.sharma@hemrajgroup.com"
+  },
+  "vendors": [
+    {
+      "id": "VND-FL-01",
+      "name": "IndiGo Corporate Air Desk",
+      "email": "corporate.air@interglobe.com",
+      "phone": "+91 124 4973838",
+      "category": "FLIGHT"
+    },
+    {
+      "id": "VND-FL-02",
+      "name": "Air India Business Desk",
+      "email": "staralliance@airindia.in",
+      "category": "FLIGHT"
+    },
+    {
+      "id": "VND-HT-01",
+      "name": "Taj Group Business Travel",
+      "email": "corporate@tajhotels.com",
+      "category": "HOTEL"
+    },
+    {
+      "id": "VND-CB-01",
+      "name": "Ola Corporate Travel Desk",
+      "email": "corp@olacabs.com",
+      "category": "CAB"
+    }
+  ]
+}
