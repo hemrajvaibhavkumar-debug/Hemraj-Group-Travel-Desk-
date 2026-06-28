@@ -71,6 +71,9 @@ export default function AllIndents({ indents, employees, jobCards }: AllIndentsP
                       <option value="DOMESTIC">DOMESTIC</option>
                       <option value="INTERNATIONAL">INTERNATIONAL</option>
                       <option value="INTERNATIONAL_RETURN">INTERNATIONAL RETURN</option>
+                      <option value="TRAIN">TRAIN</option>
+                      <option value="BUS">BUS</option>
+                      <option value="CAB">CAB</option>
                     </select>
                   </div>
                 </div>

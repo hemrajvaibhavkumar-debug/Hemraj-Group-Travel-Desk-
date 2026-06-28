@@ -49,6 +49,13 @@ export interface Employee {
   visa_number?: string;
   visa_expiry_date?: string;
   visa_country?: string;
+  
+  // Train specific fields
+  train_preferred_class?: string;
+  train_berth_preference?: string;
+  train_meal_preference?: string;
+  train_preferred_number?: string;
+
   passport_history?: Array<{
     passport_number: string;
     passport_issue_date?: string;

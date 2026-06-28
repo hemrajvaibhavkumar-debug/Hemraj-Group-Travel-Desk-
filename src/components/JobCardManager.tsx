@@ -49,7 +49,7 @@ export default function JobCardManager({
   const [selectedCard, setSelectedCard] = useState<JobCard | null>(null);
   const [profileEmployee, setProfileEmployee] = useState<Employee | null>(null);
   
-  const [activeViewSection, setActiveViewSection] = useState<JobCardStage | 'OVERVIEW' | null>(null);
+  const [activeViewSection, setActiveViewSection] = useState<JobCardStage | 'OVERVIEW' | 'VENDOR_INVOICE' | null>(null);
 
   // Sync section view with the card's native stage when it changes, and hydrate form states
   useEffect(() => {
@@ -65,7 +65,16 @@ export default function JobCardManager({
       setAirlineGstVendorName(selectedCard.airlineGstVendorName || "");
       setAirlineGstAmount(selectedCard.airlineGstAmount !== undefined ? String(selectedCard.airlineGstAmount) : "");
       const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
-      setSelectedBookingVendor(winQuote ? winQuote.vendorName : "Direct Airline Booking");
+      setSelectedBookingVendor(selectedCard.bookingVendor || (winQuote ? winQuote.vendorName : ""));
+
+      // Hydrate booking states
+      setPnr(selectedCard.bookingPNR || "");
+      setBookingAmount(selectedCard.finalBookingAmount !== undefined ? String(selectedCard.finalBookingAmount) : "");
+      setBookingCurrency(selectedCard.bookingCurrency || "INR");
+      setTicketFileName(selectedCard.ticketFileName || "");
+      setTicketFileBase64(selectedCard.ticketFileUrl || "");
+      setInvoiceFileName(selectedCard.ticketVendorInvoiceName || "");
+      setInvoiceFileBase64(selectedCard.ticketVendorInvoiceUrl || "");
 
       // Auto-prefill the Quotation comparison descriptors from associated Travel Indent
       const localIndent = indents ? indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId) : null;
@@ -98,6 +107,15 @@ export default function JobCardManager({
       setQuoteTravelDate("");
       setBookingVarianceJustification("");
       setReconVarianceJustification("");
+
+      // Clear booking states
+      setPnr("");
+      setBookingAmount("");
+      setBookingCurrency("INR");
+      setTicketFileName("");
+      setTicketFileBase64("");
+      setInvoiceFileName("");
+      setInvoiceFileBase64("");
     }
   }, [selectedCard, indents]);
 
@@ -986,11 +1004,50 @@ export default function JobCardManager({
     }
   };
 
-  // 9. Save PNR / Booking particulars
+  // 9. Save PNR / Booking particulars (Ticket details only)
   const handleSaveBookingFulfillment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCard || !pnr || !bookingAmount) {
-      triggerError("Enter booking reference ID (PNR) and final bill value first.");
+      triggerError("Please enter the booking PNR and ticket cost first.");
+      return;
+    }
+
+    try {
+      const newAudit: AuditLogEntry = {
+        timestamp: new Date().toISOString(),
+        userId: operatorId,
+        action: "Ticket Booked",
+        notes: `Recorded ticket booking. PNR: ${pnr}, Cost: ${bookingAmount} ${bookingCurrency}.`
+      };
+
+      const res = await fetch(`/api/job-cards/${selectedCard.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingPNR: pnr,
+          finalBookingAmount: parseFloat(bookingAmount),
+          bookingCurrency: bookingCurrency,
+          ticketFileUrl: ticketFileBase64 || undefined,
+          ticketFileName: ticketFileName || undefined,
+          auditLogs: [newAudit]
+        })
+      });
+
+      if (!res.ok) throw new Error("Saving ticket details failed.");
+      
+      triggerSuccess("Ticket details saved successfully!");
+      setActiveViewSection('VENDOR_INVOICE');
+      await onRefresh();
+    } catch (err: any) {
+      triggerError(err.message);
+    }
+  };
+
+  // 9.5 Save Vendor Invoice details
+  const handleSaveVendorInvoiceFulfillment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCard || !invoiceNumber || !invoiceVendorAmount) {
+      triggerError("Please enter the invoice number and invoice amount first.");
       return;
     }
 
@@ -1006,25 +1063,26 @@ export default function JobCardManager({
       };
 
       const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
-      let justificationText = bookingVarianceJustification.trim();
-      
-      if (winQuote) {
-        const winQuoteInr = convertToInrValue(winQuote.amount, winQuote.currency);
-        const enteredInr = convertToInrValue(parseFloat(bookingAmount) || 0, bookingCurrency);
-        if (enteredInr > winQuoteInr) {
-          if (!justificationText) {
-            triggerError("Price deviation detected! You must double-check the billing particulars and record a mandatory compliance justification comment.");
-            return;
-          }
-        }
+      const approvedAmount = winQuote ? winQuote.amount : 0;
+      const finalAmt = parseFloat(invoiceVendorAmount) || 0;
+      let varPct = 0;
+      if (approvedAmount > 0) {
+        varPct = Math.round(((finalAmt - approvedAmount) / approvedAmount) * 100);
+      }
+      const isHighVariance = varPct > 10;
+      const justificationText = bookingVarianceJustification.trim();
+
+      if (isHighVariance && !justificationText) {
+        triggerError("Ticket cost deviation detected! Please enter a explanation comment.");
+        return;
       }
 
       const newAudit: AuditLogEntry = {
         timestamp: new Date().toISOString(),
         userId: operatorId,
-        action: "Booking Fulfilled" + (justificationText ? " With Deviation" : ""),
-        notes: `Logged actual booking. PNR: ${pnr}, Booking: ${bookingAmount} ${bookingCurrency}.` +
-               (justificationText ? ` Compliance Justification: "${justificationText}"` : "")
+        action: "Vendor Invoice Uploaded" + (justificationText ? " With Deviation" : ""),
+        notes: `Uploaded vendor invoice. No: ${invoiceNumber}, Amount: ${invoiceVendorAmount} ${invoiceCurrency}.` +
+               (justificationText ? ` Reason: "${justificationText}"` : "")
       };
 
       const res = await fetch(`/api/job-cards/${selectedCard.id}`, {
@@ -1032,13 +1090,10 @@ export default function JobCardManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           stage: 'FINANCE',
-          bookingPNR: pnr,
           bookingVendor: selectedBookingVendor || undefined,
-          finalBookingAmount: parseFloat(bookingAmount),
-          invoiceVendorAmount: parseFloat(bookingAmount), // Populate invoice amount for Step 4
-          bookingCurrency: bookingCurrency,
-          ticketFileUrl: ticketFileBase64 || undefined,
-          ticketFileName: ticketFileName || undefined,
+          invoiceVendorAmount: finalAmt,
+          invoiceCurrency: invoiceCurrency,
+          invoiceNumber: invoiceNumber,
           ticketVendorInvoiceUrl: invoiceFileBase64 || undefined,
           ticketVendorInvoiceName: invoiceFileName || undefined,
           bookingRecordedAt: new Date().toISOString(),
@@ -1047,9 +1102,9 @@ export default function JobCardManager({
         })
       });
 
-      if (!res.ok) throw new Error("Saving fulfillment failed.");
+      if (!res.ok) throw new Error("Saving vendor invoice details failed.");
       
-      triggerSuccess("Booking record saved! Card has progressed to Finance Approval review.");
+      triggerSuccess("Vendor invoice saved! Moving to Finance Approval.");
       setPnr("");
       setBookingAmount("");
       setSelectedBookingVendor("");
@@ -1059,6 +1114,7 @@ export default function JobCardManager({
       setInvoiceFileName("");
       setBookingMessage("");
       setBookingVarianceJustification("");
+      setActiveViewSection('FINANCE');
       await onRefresh();
     } catch (err: any) {
       triggerError(err.message);
@@ -2078,14 +2134,27 @@ export default function JobCardManager({
                       { stage: 'QUOTATION', title: '1. Bids' },
                       { stage: 'APPROVAL', title: '2. Approval' },
                       { stage: 'BOOKING', title: '3. Booking' },
-                      { stage: 'FINANCE', title: '4. Finance' },
-                      { stage: 'RECONCILIATION', title: '5. Audit' },
-                      { stage: 'CLOSED', title: '6. Final' }
+                      { stage: 'VENDOR_INVOICE', title: '4. Vendor Invoice' },
+                      { stage: 'FINANCE', title: '5. Finance' },
+                      { stage: 'RECONCILIATION', title: '6. Audit' },
+                      { stage: 'CLOSED', title: '7. Final' }
                     ] as const).map(step => {
                       const isActive = activeViewSection === step.stage;
                       const cardStageOrder = ['QUOTATION', 'APPROVAL', 'BOOKING', 'FINANCE', 'RECONCILIATION', 'CLOSED'];
-                      const isComplete = step.stage !== 'OVERVIEW' && cardStageOrder.indexOf(selectedCard.stage) > cardStageOrder.indexOf(step.stage as JobCardStage);
-                      const isCurrentActionStage = selectedCard.stage === step.stage;
+                      
+                      let isComplete = false;
+                      let isCurrentActionStage = false;
+                      
+                      if (step.stage === 'VENDOR_INVOICE') {
+                        isComplete = cardStageOrder.indexOf(selectedCard.stage) > cardStageOrder.indexOf('BOOKING');
+                        isCurrentActionStage = selectedCard.stage === 'BOOKING' && !!selectedCard.bookingPNR && !selectedCard.ticketVendorInvoiceUrl;
+                      } else if (step.stage === 'BOOKING') {
+                        isComplete = cardStageOrder.indexOf(selectedCard.stage) > cardStageOrder.indexOf('BOOKING') || (selectedCard.stage === 'BOOKING' && !!selectedCard.bookingPNR);
+                        isCurrentActionStage = selectedCard.stage === 'BOOKING' && !selectedCard.bookingPNR;
+                      } else {
+                        isComplete = step.stage !== 'OVERVIEW' && cardStageOrder.indexOf(selectedCard.stage) > cardStageOrder.indexOf(step.stage as JobCardStage);
+                        isCurrentActionStage = selectedCard.stage === step.stage;
+                      }
 
                       return (
                         <button
@@ -2309,13 +2378,35 @@ export default function JobCardManager({
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                               <div className="md:col-span-1">
                                 <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Selected Vendor Name</label>
-                                <input
-                                  type="text"
-                                  placeholder="e.g. Akbar Travels"
+                                <select
+                                  required
                                   value={quoteVendorName}
                                   onChange={e => setQuoteVendorName(e.target.value)}
-                                  className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-black text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition"
-                                />
+                                  className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition cursor-pointer"
+                                >
+                                  <option value="">-- Select Vendor --</option>
+                                  {vendorsList.map(v => (
+                                    <option key={v.id} value={v.name}>{v.name}</option>
+                                  ))}
+                                </select>
+                                {quoteVendorName && (() => {
+                                  const matchedVendor = vendorsList.find(v => v.name === quoteVendorName);
+                                  if (!matchedVendor) return null;
+                                  return (
+                                    <div className="mt-2 text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1">
+                                      <div className="font-bold text-slate-700">Vendor Info:</div>
+                                      {matchedVendor.categories && matchedVendor.categories.length > 0 && (
+                                        <div><span className="font-semibold">Categories:</span> {matchedVendor.categories.join(", ")}</div>
+                                      )}
+                                      {matchedVendor.emails && matchedVendor.emails.length > 0 && (
+                                        <div><span className="font-semibold">Email:</span> {matchedVendor.emails.join(", ")}</div>
+                                      )}
+                                      {matchedVendor.phones && matchedVendor.phones.length > 0 && (
+                                        <div><span className="font-semibold">Phone:</span> {matchedVendor.phones.join(", ")}</div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                               <div>
                                 <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Quotation Date</label>
@@ -3018,9 +3109,6 @@ export default function JobCardManager({
                         <textarea
                           rows={2}
                           placeholder="e.g. Flight schedules look clean and budget is fully within compliance. Proceed."
-                          value={approvalNotes}
-                          onChange={e => setApprovalNotes(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs font-bold"
                         ></textarea>
                       </div>
 
@@ -3033,29 +3121,25 @@ export default function JobCardManager({
                       
                       <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
                         <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
-                        <span>Proposal Authorized! Card shifted to booking execution.</span>
+                        <span>Request Approved! Ready to book tickets.</span>
                       </div>
 
-                      {/* AI OCR INSTRUCTIONS */}
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">
-                        To fulfill ticket details, either input manually or upload the receipt, voucher, or billing invoice below and click <strong>"Scan with Gemini AI"</strong>. Gemini will analyze the ticket layout, passenger list, and invoice totals instantly.
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Please enter the booking details after booking the tickets. You can scan the ticket to auto-fill the fields.
                       </p>
-
-
 
                       <form onSubmit={handleSaveBookingFulfillment} className="space-y-6">
                         
-                        {/* MANUAL/SCAN FIELD ROW */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
-                            <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Booking PNR / ticket number *</label>
+                            <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1.5">Booking PNR / Ticket Number *</label>
                             <input
                               type="text"
                               required
-                              placeholder="e.g. BOMDEL482928"
+                              placeholder="e.g. BOMDEL12345"
                               value={pnr}
                               onChange={e => setPnr(e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-black font-mono uppercase"
+                              className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-bold font-mono uppercase"
                             />
                             {pnr && resolvedEmployee?.phone && (
                               <a
@@ -3071,22 +3155,22 @@ export default function JobCardManager({
 
                           <div className="grid grid-cols-3 gap-2">
                             <div className="col-span-2">
-                              <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Actual Booking Amount *</label>
+                              <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1.5">Ticket Price / Cost *</label>
                               <input
                                 type="number"
                                 required
-                                placeholder="e.g. 11980"
+                                placeholder="0"
                                 value={bookingAmount}
                                 onChange={e => setBookingAmount(e.target.value)}
-                                className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-black font-mono"
+                                className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-bold font-mono"
                               />
                             </div>
                             <div>
-                              <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Currency</label>
+                              <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1.5">Currency</label>
                               <select
                                 value={bookingCurrency}
                                 onChange={e => setBookingCurrency(e.target.value)}
-                                className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-black"
+                                className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-bold"
                               >
                                 <option value="INR">INR</option>
                                 <option value="USD">USD</option>
@@ -3098,18 +3182,17 @@ export default function JobCardManager({
                           </div>
                         </div>
 
-                        {/* AUTO-SELECTED BOOKING VENDOR (NON-REDUNDANT INTEGRATION) */}
-                        <div className="p-4 bg-slate-50/75 border border-slate-205 rounded-2xl flex items-center justify-between gap-4">
+                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4">
                           <div>
-                            <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">Fulfillment Agency (Automated winning partner)</span>
-                            <span className="text-xs font-black text-slate-900 uppercase tracking-tight flex items-center gap-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Booking Agency</span>
+                            <span className="text-xs font-bold text-slate-900 uppercase flex items-center gap-1.5">
                               <Building2 className="w-3.5 h-3.5 text-orange-500" />
-                              {selectedBookingVendor || "Direct Airline Booking / Partner Agent"}
+                              {selectedBookingVendor || "Direct Booking"}
                             </span>
                           </div>
                           <div className="text-right">
-                            <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">Procurement Reference Ceiling</span>
-                            <span className="text-xs font-mono font-extrabold text-emerald-800">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Approved Bid Limit</span>
+                            <span className="text-xs font-mono font-bold text-emerald-800">
                               {(() => {
                                 const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
                                 return winQuote ? `${winQuote.amount} ${winQuote.currency}` : "Unspecified";
@@ -3118,77 +3201,183 @@ export default function JobCardManager({
                           </div>
                         </div>
 
-                        {/* DOUBLE UPLOADER FOR TICKET AND INVOICE */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-100 pt-6">
-                          
-                          {/* COGNITIVE TICKET SCAN */}
-                          <div className="p-5 border-2 border-slate-150 rounded-2xl space-y-3.5 bg-slate-50/50">
-                            <span className="text-[10px] font-black text-slate-900 uppercase block tracking-wider">A. Travel Ticket / Hotel Voucher</span>
-                            <div className="space-y-2">
-                              <input
-                                type="file"
-                                accept=".pdf,image/*"
-                                onChange={e => handleFileChange(e, setTicketFileBase64, setTicketFileName)}
-                                className="hidden"
-                                id="booking-ticket-file"
-                              />
-                              <label
-                                htmlFor="booking-ticket-file"
-                                className="flex items-center gap-1.5 px-4 h-11 border-2 border-dashed border-slate-250 bg-white rounded-xl cursor-pointer text-[10px] font-bold text-slate-500 uppercase tracking-wider hover:border-orange-500 duration-150"
-                              >
-                                <Upload className="w-4 h-4 text-orange-500" />
-                                <span className="truncate">{ticketFileName || "Upload physical Ticket"}</span>
-                              </label>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => handleScanDocument('ticket')}
-                              disabled={scanningTicket || !ticketFileBase64}
-                              className="w-full h-10 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[9px] font-black uppercase tracking-widest rounded-lg flex items-center justify-center gap-1.5 duration-150"
+                        {/* Ticket Upload Block */}
+                        <div className="p-5 border border-slate-205 rounded-2xl space-y-4 bg-slate-50/50 max-w-md">
+                          <span className="text-[10px] font-bold text-slate-700 uppercase block tracking-wider">Upload Travel Ticket / Voucher</span>
+                          <div className="space-y-2">
+                            <input
+                              type="file"
+                              accept=".pdf,image/*"
+                              onChange={e => handleFileChange(e, setTicketFileBase64, setTicketFileName)}
+                              className="hidden"
+                              id="booking-ticket-file"
+                            />
+                            <label
+                              htmlFor="booking-ticket-file"
+                              className="flex items-center gap-1.5 px-4 h-11 border-2 border-dashed border-slate-250 bg-white rounded-xl cursor-pointer text-[10px] font-bold text-slate-550 uppercase tracking-wider hover:border-orange-500 duration-150"
                             >
-                              <Sparkles className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                              <span>{scanningTicket ? "Scanning..." : "Scan ticket with Gemini AI"}</span>
-                            </button>
+                              <Upload className="w-4 h-4 text-orange-500" />
+                              <span className="truncate">{ticketFileName || "Choose Ticket File"}</span>
+                            </label>
                           </div>
 
-                          {/* INVOICE COGNITIVE SCAN */}
-                          <div className="p-5 border-2 border-slate-150 rounded-2xl space-y-3.5 bg-slate-50/50">
-                            <span className="text-[10px] font-black text-slate-900 uppercase block tracking-wider">B. Vendor's Physical Billing Invoice</span>
-                            <div className="space-y-2">
-                              <input
-                                type="file"
-                                accept=".pdf,image/*"
-                                onChange={e => handleFileChange(e, setInvoiceFileBase64, setInvoiceFileName)}
-                                className="hidden"
-                                id="booking-invoice-file"
-                              />
-                              <label
-                                htmlFor="booking-invoice-file"
-                                className="flex items-center gap-1.5 px-4 h-11 border-2 border-dashed border-slate-250 bg-white rounded-xl cursor-pointer text-[10px] font-bold text-slate-500 uppercase tracking-wider hover:border-orange-500 duration-150"
-                              >
-                                <Upload className="w-4 h-4 text-orange-500" />
-                                <span className="truncate">{invoiceFileName || "Upload receipt Invoice"}</span>
-                              </label>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => handleScanDocument('invoice')}
-                              disabled={scanningInvoice || !invoiceFileBase64}
-                              className="w-full h-10 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[9px] font-black uppercase tracking-widest rounded-lg flex items-center justify-center gap-1.5 duration-150"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                              <span>{scanningInvoice ? "Scanning..." : "Scan invoice with Gemini AI"}</span>
-                            </button>
-                          </div>
-
+                          <button
+                            type="button"
+                            onClick={() => handleScanDocument('ticket')}
+                            disabled={scanningTicket || !ticketFileBase64}
+                            className="w-full h-10 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg flex items-center justify-center gap-1.5 duration-150"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                            <span>{scanningTicket ? "Scanning..." : "Scan ticket with Gemini AI"}</span>
+                          </button>
                         </div>
 
-                        {/* COGNITIVE RESULT STATUS PANEL */}
                         {bookingMessage && (
                           <div className="p-4 bg-slate-900 text-white rounded-2xl font-mono text-[10px] space-y-1 block leading-relaxed border-l-4 border-orange-500">
-                            <div className="font-bold uppercase tracking-widest text-orange-500 mb-1">Cognitive Scan Terminal logger:</div>
+                            <div className="font-bold uppercase tracking-widest text-orange-500 mb-1">Gemini Scan Status:</div>
+                            <p>{bookingMessage}</p>
+                            {scanMethod && <p className="text-slate-400 font-bold uppercase">METHOD: {scanMethod}</p>}
+                          </div>
+                        )}
+
+                        <div className="border-t border-slate-100 pt-6 flex justify-end gap-3">
+                          <button
+                            type="submit"
+                            className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold uppercase tracking-widest rounded-xl transition cursor-pointer"
+                          >
+                            Save Ticket Details
+                          </button>
+                        </div>
+
+                      </form>
+
+                    </div>
+                  )}
+
+                  {/* STEP 3.5 WORKSPACE: VENDOR INVOICE */}
+                  {activeViewSection === 'VENDOR_INVOICE' && (
+                    <div className="space-y-6">
+                      
+                      <div className="p-4 bg-orange-50 border border-orange-200 text-orange-950 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
+                        <FileText className="w-5 h-5 text-orange-600 shrink-0" />
+                        <span>Vendor Invoice Upload</span>
+                      </div>
+
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Please upload the vendor invoice and check the billing details. You can scan the invoice with Gemini AI to fill details automatically.
+                      </p>
+
+                      <form onSubmit={handleSaveVendorInvoiceFulfillment} className="space-y-6">
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1.5">Vendor Name *</label>
+                            <select
+                              required
+                              value={selectedBookingVendor}
+                              onChange={e => setSelectedBookingVendor(e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-bold cursor-pointer"
+                            >
+                              <option value="">-- Select Vendor --</option>
+                              {vendorsList.map(v => (
+                                <option key={v.id} value={v.name}>{v.name}</option>
+                              ))}
+                            </select>
+                            {selectedBookingVendor && (() => {
+                              const matchedVendor = vendorsList.find(v => v.name === selectedBookingVendor);
+                              if (!matchedVendor) return null;
+                              return (
+                                <div className="mt-2 text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1">
+                                  <div className="font-bold text-slate-700">Vendor Info:</div>
+                                  {matchedVendor.categories && matchedVendor.categories.length > 0 && (
+                                    <div><span className="font-semibold">Categories:</span> {matchedVendor.categories.join(", ")}</div>
+                                  )}
+                                  {matchedVendor.emails && matchedVendor.emails.length > 0 && (
+                                    <div><span className="font-semibold">Email:</span> {matchedVendor.emails.join(", ")}</div>
+                                  )}
+                                  {matchedVendor.phones && matchedVendor.phones.length > 0 && (
+                                    <div><span className="font-semibold">Phone:</span> {matchedVendor.phones.join(", ")}</div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1.5">Invoice Number *</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. MMT-12345"
+                              value={invoiceNumber}
+                              onChange={e => setInvoiceNumber(e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-bold"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1.5">Invoice Amount *</label>
+                              <input
+                                type="number"
+                                required
+                                placeholder="0"
+                                value={invoiceVendorAmount}
+                                onChange={e => setInvoiceVendorAmount(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-bold font-mono"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1.5">Currency</label>
+                              <select
+                                value={invoiceCurrency}
+                                onChange={e => setInvoiceCurrency(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-bold"
+                              >
+                                <option value="INR">INR</option>
+                                <option value="USD">USD</option>
+                                <option value="VND">VND</option>
+                                <option value="NGN">NGN</option>
+                                <option value="AUD">AUD</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Invoice File Uploader */}
+                        <div className="p-5 border border-slate-205 rounded-2xl space-y-4 bg-slate-50/50 max-w-md">
+                          <span className="text-[10px] font-bold text-slate-700 uppercase block tracking-wider">Vendor Invoice File</span>
+                          <div className="space-y-2">
+                            <input
+                              type="file"
+                              accept=".pdf,image/*"
+                              onChange={e => handleFileChange(e, setInvoiceFileBase64, setInvoiceFileName)}
+                              className="hidden"
+                              id="booking-invoice-file"
+                            />
+                            <label
+                              htmlFor="booking-invoice-file"
+                              className="flex items-center gap-1.5 px-4 h-11 border-2 border-dashed border-slate-250 bg-white rounded-xl cursor-pointer text-[10px] font-bold text-slate-500 uppercase tracking-wider hover:border-orange-500 duration-150"
+                            >
+                              <Upload className="w-4 h-4 text-orange-500" />
+                              <span className="truncate">{invoiceFileName || "Choose Invoice File"}</span>
+                            </label>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleScanDocument('invoice')}
+                            disabled={scanningInvoice || !invoiceFileBase64}
+                            className="w-full h-10 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[9px] font-bold uppercase tracking-widest rounded-lg flex items-center justify-center gap-1.5 duration-150"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                            <span>{scanningInvoice ? "Scanning..." : "Scan invoice with Gemini AI"}</span>
+                          </button>
+                        </div>
+
+                        {bookingMessage && (
+                          <div className="p-4 bg-slate-900 text-white rounded-2xl font-mono text-[10px] space-y-1 block leading-relaxed border-l-4 border-orange-500">
+                            <div className="font-bold uppercase tracking-widest text-orange-500 mb-1">Gemini Scan Status:</div>
                             <p>{bookingMessage}</p>
                             {scanMethod && <p className="text-slate-400 font-bold uppercase">METHOD: {scanMethod}</p>}
                           </div>
@@ -3207,10 +3396,10 @@ export default function JobCardManager({
                           };
 
                           const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
-                          if (!winQuote || !bookingAmount) return null;
+                          if (!winQuote || !invoiceVendorAmount) return null;
 
                           const winQuoteInr = convertToInrValueComp(winQuote.amount, winQuote.currency);
-                          const enteredInr = convertToInrValueComp(parseFloat(bookingAmount) || 0, bookingCurrency);
+                          const enteredInr = convertToInrValueComp(parseFloat(invoiceVendorAmount) || 0, invoiceCurrency);
                           const isSurged = enteredInr > winQuoteInr;
                           if (!isSurged) return null;
 
@@ -3221,16 +3410,16 @@ export default function JobCardManager({
                               <div className="flex items-start gap-2.5">
                                 <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5 animate-pulse" />
                                 <div>
-                                  <span className="font-black text-[9px] uppercase tracking-widest text-orange-950 block">⚠️ TICKET PRICE VOLATILITY DETECTED (AUDIT ALERT)</span>
-                                  <p className="text-orange-900 text-[11px] font-bold uppercase tracking-wide leading-relaxed mt-1">
-                                    The actual ticketed amount (INR {Math.round(enteredInr)}) exceeds the authorized budget (INR {Math.round(winQuoteInr)}) by {varPercent}%.
+                                  <span className="font-bold text-[10px] uppercase tracking-wider text-orange-950 block">Warning: Invoice Price is Higher than Approved Budget</span>
+                                  <p className="text-orange-900 text-xs font-bold leading-relaxed mt-1">
+                                    The actual invoice amount (INR {Math.round(enteredInr)}) exceeds the approved budget (INR {Math.round(winQuoteInr)}) by {varPercent}%.
                                   </p>
                                 </div>
                               </div>
 
                               <div className="space-y-1.5">
-                                <label className="block text-[8px] font-black text-orange-900 uppercase tracking-widest leading-none">
-                                  Explain why actual ticketing cost deviates from winning bid * (Mandatory compliance)
+                                <label className="block text-[10px] font-bold text-orange-900 uppercase tracking-wide">
+                                  Why is the invoice price higher than the approved bid? *
                                 </label>
                                 <input
                                   type="text"
@@ -3238,7 +3427,7 @@ export default function JobCardManager({
                                   placeholder="e.g. Airline seat fares jumped or selected seat preferences led to dynamic fee additions"
                                   value={bookingVarianceJustification}
                                   onChange={e => setBookingVarianceJustification(e.target.value)}
-                                  className="w-full bg-white border border-orange-300 rounded-xl p-3 text-xs text-slate-800 font-extrabold uppercase tracking-wide placeholder-slate-400 focus:outline-none focus:border-orange-500"
+                                  className="w-full bg-white border border-orange-350 rounded-xl p-3 text-xs font-bold placeholder-slate-400 focus:outline-none focus:border-orange-500"
                                 />
                               </div>
                             </div>
@@ -3248,9 +3437,9 @@ export default function JobCardManager({
                         <div className="border-t border-slate-100 pt-6 flex justify-end gap-3">
                           <button
                             type="submit"
-                            className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest rounded-full transition"
+                            className="h-11 px-6 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold uppercase tracking-widest rounded-xl transition cursor-pointer"
                           >
-                            Save Booking & Close Stage
+                            Save Vendor Invoice Details & Send to Finance
                           </button>
                         </div>
 
@@ -3265,7 +3454,7 @@ export default function JobCardManager({
                       
                       <div className="p-4 bg-orange-50 border border-orange-200 text-orange-950 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
                         <DollarSign className="w-5 h-5 text-orange-600 shrink-0 animate-pulse" />
-                        <span>Stage 4: Finance payment clearance and invoice verification</span>
+                        <span>Step 5: Finance Approval & Invoice Check</span>
                       </div>
 
                       {(() => {
@@ -3282,20 +3471,20 @@ export default function JobCardManager({
                           <form onSubmit={handleSaveFinanceApproval} className="space-y-6">
                             
                             {/* COMPARISON BAR CARD */}
-                            <div className="bg-slate-50 border-2 border-slate-900 rounded-3xl p-6 space-y-4">
-                              <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-widest block border-b border-slate-200 pb-2">Side-by-Side Cost Audit Tracker</h4>
+                            <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 space-y-4">
+                              <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider block border-b border-slate-200 pb-2">Cost Comparison</h4>
                               
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 font-bold text-xs">
                                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-450 uppercase tracking-widest block mb-1">1. Quoted Budget Plan (Ceiling)</span>
+                                  <span className="text-[8px] font-bold text-slate-400 uppercase block mb-1">Approved Bid Limit</span>
                                   <span className="text-sm font-black font-mono text-slate-900 block">{approvedAmount} {winQuote?.currency || "INR"}</span>
                                   <span className="text-[9px] text-slate-400 font-bold block uppercase mt-1">Vendor: {winQuote?.vendorName || "Unspecified"}</span>
                                 </div>
                                 <div className={`p-4 rounded-xl border shadow-xs ${isHighVariance ? "bg-rose-50 border-rose-300 text-rose-950 animate-pulse" : "bg-emerald-50/70 border-emerald-300 text-emerald-950"}`}>
-                                  <span className={`text-[8px] font-black uppercase tracking-widest block mb-1 ${isHighVariance ? 'text-rose-600' : 'text-emerald-700'}`}>2. Target Invoice Final Cost</span>
+                                  <span className={`text-[8px] font-bold uppercase block mb-1 ${isHighVariance ? 'text-rose-600' : 'text-emerald-700'}`}>Invoice Final Cost</span>
                                   <span className="text-sm font-black font-mono block">{finalAmt} {invoiceCurrency}</span>
                                   <span className={`text-[9px] font-extrabold block uppercase mt-1 ${isHighVariance ? "text-rose-700" : "text-emerald-700"}`}>
-                                    Variance is {varPct >= 0 ? `+${varPct}%` : `${varPct}%`}
+                                    Difference is {varPct >= 0 ? `+${varPct}%` : `${varPct}%`}
                                   </span>
                                 </div>
                               </div>
@@ -3305,8 +3494,8 @@ export default function JobCardManager({
                                 <div className="p-4 bg-rose-100 border border-rose-350 text-rose-950 rounded-2xl flex items-start gap-3">
                                   <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                                   <div className="text-[10px] font-bold uppercase tracking-wide leading-normal">
-                                    <span className="font-black text-rose-800 block text-[11px] mb-0.5">Critical budget variance detected!</span>
-                                    The actual vendor billing invoice (<strong>{finalAmt} {invoiceCurrency}</strong>) exceeds the originally approved plan ceiling (<strong>{approvedAmount} {invoiceCurrency}</strong>) by <strong className="text-rose-700 font-black">{varPct}%</strong> (threshold: 10%). Payment clearance requires a mandatory corporate justification override statement.
+                                    <span className="font-bold text-rose-800 block text-[11px] mb-0.5">Critical difference detected!</span>
+                                    The actual invoice amount (<strong>{finalAmt} {invoiceCurrency}</strong>) exceeds the approved budget (<strong>{approvedAmount} {invoiceCurrency}</strong>) by <strong className="text-rose-700 font-black">{varPct}%</strong>. Payment clearance requires a reason comment below.
                                   </div>
                                 </div>
                               )}
@@ -3316,10 +3505,10 @@ export default function JobCardManager({
                             <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4">
                               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                                 <div>
-                                  <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-widest block">Quotation Comparison Board</h4>
-                                  <p className="text-[9px] text-slate-400 font-extrabold uppercase mt-0.5">Bids submitted by vendors and checked by Finance department</p>
+                                  <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider block">Quotations Board</h4>
+                                  <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">Bids submitted by vendors</p>
                                 </div>
-                                <span className="px-3 py-1 bg-slate-100 rounded-full text-[8.5px] font-black text-slate-655 uppercase tracking-normal">{selectedCard.quotes ? selectedCard.quotes.length : 0} registered bids</span>
+                                <span className="px-3 py-1 bg-slate-100 rounded-full text-[8.5px] font-bold text-slate-600 uppercase">{selectedCard.quotes ? selectedCard.quotes.length : 0} bids</span>
                               </div>
                               <div className="overflow-x-auto">
                                   <table className="w-full text-left font-bold text-xs uppercase tracking-wide">
@@ -3390,37 +3579,37 @@ export default function JobCardManager({
                             </div>
 
                             {/* INVOICE INPUT VARIABLES FORM */}
-                            <div className="p-6 bg-slate-50 border border-slate-150 rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-6">
                               <div className="space-y-4">
                                 <div>
-                                  <label className="block text-[8px] font-black text-slate-400 tracking-widest uppercase mb-1.5">Billing Invoice Code / Number *</label>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Invoice Number *</label>
                                   <input
                                     type="text"
                                     required
-                                    placeholder="e.g. MMT/INV/29302"
+                                    placeholder="e.g. MMT-12345"
                                     value={invoiceNumber}
                                     onChange={e => setInvoiceNumber(e.target.value)}
-                                    className="w-full bg-white border border-slate-205 rounded-xl p-2.5 text-xs font-black uppercase font-mono"
+                                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-bold uppercase font-mono"
                                   />
                                 </div>
                                 <div className="grid grid-cols-3 gap-3">
                                   <div className="col-span-2">
-                                    <label className="block text-[8px] font-black text-slate-400 tracking-widest uppercase mb-1.5">Received Bill Amount *</label>
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Invoice Amount *</label>
                                     <input
                                       type="number"
                                       required
-                                      placeholder="e.g. 12900"
+                                      placeholder="0"
                                       value={invoiceVendorAmount}
                                       onChange={e => setInvoiceVendorAmount(e.target.value)}
-                                      className="w-full bg-white border border-slate-205 rounded-xl p-2.5 text-xs font-mono font-black"
+                                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-mono font-bold"
                                     />
                                   </div>
                                   <div>
-                                    <label className="block text-[8px] font-black text-slate-400 tracking-widest uppercase mb-1.5">Currency</label>
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Currency</label>
                                     <select
                                       value={invoiceCurrency}
                                       onChange={e => setInvoiceCurrency(e.target.value)}
-                                      className="w-full bg-white border border-slate-205 rounded-xl p-2 text-xs font-black"
+                                      className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-bold"
                                     >
                                       <option value="INR">INR</option>
                                       <option value="USD">USD</option>
@@ -3432,15 +3621,15 @@ export default function JobCardManager({
 
                               <div className="space-y-4">
                                 <div>
-                                  <label className="block text-[8px] font-black text-slate-400 tracking-widest uppercase mb-1.5">
-                                    Variance Justification override comment {isHighVariance ? "(Strictly Required * )" : "(Optional)"}
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">
+                                    Reason for price difference {isHighVariance ? "(Required *)" : "(Optional)"}
                                   </label>
                                   <textarea
                                     rows={4}
-                                    placeholder={isHighVariance ? "variance exceeds 10%. Please explain why payment clearance is justified..." : "e.g. Cleared. Vendor rates within corporate guidelines."}
+                                    placeholder={isHighVariance ? "Please explain why the invoice exceeds the approved bid limit..." : "e.g. Cleared. Vendor rates within corporate guidelines."}
                                     value={financeVarianceReason}
                                     onChange={e => setFinanceVarianceReason(e.target.value)}
-                                    className="w-full bg-white border border-slate-205 rounded-xl p-3 text-xs font-semibold"
+                                    className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs font-bold"
                                   ></textarea>
                                 </div>
                               </div>
@@ -3452,25 +3641,25 @@ export default function JobCardManager({
                                 <button
                                   type="button"
                                   onClick={() => handleFinanceReject(financeVarianceReason || "Correction requested from Finance Desk", "CORRECTION")}
-                                  className="px-5 py-3 border border-orange-250 bg-orange-50 hover:bg-orange-100 text-orange-850 text-[9px] font-black uppercase tracking-widest rounded-full transition cursor-pointer"
+                                  className="px-5 py-3 border border-orange-200 bg-orange-50 hover:bg-orange-100 text-orange-800 text-[10px] font-bold uppercase tracking-wider rounded-xl transition cursor-pointer"
                                 >
                                   Request Correction
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => handleFinanceReject(financeVarianceReason || "Rejected by Finance controller", "REJECT")}
-                                  className="px-5 py-3 border border-rose-250 bg-rose-50 hover:bg-rose-100 text-rose-850 text-[9px] font-black uppercase tracking-widest rounded-full transition cursor-pointer"
+                                  className="px-5 py-3 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-800 text-[10px] font-bold uppercase tracking-wider rounded-xl transition cursor-pointer"
                                 >
-                                  Reject Payment Request
+                                  Reject Payment
                                 </button>
                               </div>
 
                               <button
                                 type="submit"
-                                className="px-6 py-3 bg-slate-950 hover:bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-full transition flex items-center gap-2 cursor-pointer shadow-sm"
+                                className="px-6 py-3 bg-slate-950 hover:bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider rounded-xl transition flex items-center gap-2 cursor-pointer shadow-sm"
                               >
                                 <FileCheck className="w-4 h-4 text-emerald-400 animate-pulse" />
-                                <span>Approve Payment Clearances</span>
+                                <span>Approve Payment</span>
                               </button>
                             </div>
 

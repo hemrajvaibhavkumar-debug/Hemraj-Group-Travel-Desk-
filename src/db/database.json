@@ -101,6 +101,28 @@
   ],
   "indents": [
     {
+      "travel_type": "DOMESTIC",
+      "gst_applicable": true,
+      "priority": "MEDIUM",
+      "travel_date": "2026-07-03",
+      "wp_number": "N/A",
+      "nearest_boarding_point": "DVS",
+      "luggage": "sdfdfs",
+      "visa_type": "BUSINESS",
+      "seat_preference": "WINDOW",
+      "meal_preference": "VEG",
+      "source_location": "sfsdf",
+      "destination": "sdfdf",
+      "purpose": "abscjsdfsdfsfds",
+      "employee_code": "EMP-2045",
+      "plant": "HIPL",
+      "travel_approver": "Rohit",
+      "approver_title": "VP",
+      "indent_raiser": "VIJOY",
+      "id": "IND-2026-3430",
+      "created_at": "2026-06-28T07:06:23.388Z"
+    },
+    {
       "id": "IND-2026-0001",
       "travel_type": "DOMESTIC",
       "gst_applicable": true,
@@ -215,6 +237,28 @@
     }
   ],
   "jobCards": [
+    {
+      "id": "IND-2026-3430",
+      "indentId": "IND-2026-3430",
+      "travelerName": "Tosin Alabi",
+      "destination": "sfsdf → sdfdf",
+      "department": "Ops",
+      "created_at": "2026-06-28T07:06:40.981Z",
+      "stage": "QUOTATION",
+      "rfqVendors": [],
+      "quotes": [],
+      "approvalStatus": "PENDING",
+      "gstDetailsCorrect": false,
+      "physicalInvoiceHandedOver": false,
+      "auditLogs": [
+        {
+          "timestamp": "2026-06-28T07:06:40.981Z",
+          "userId": "Travel Desk Office",
+          "action": "Job Card Opened",
+          "notes": "Job Card successfully generated for approved travel desk indent IND-2026-3430."
+        }
+      ]
+    },
     {
       "id": "IND-2026-0004",
       "indentId": "IND-2026-0004",

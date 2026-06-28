@@ -1,6 +1,6 @@
 import React, { useState, useRef, ChangeEvent, DragEvent } from "react";
 import { TravelCategory, PriorityLevel, Employee, TravelIndent, Department, BillingCurrency } from "../types";
-import { Upload, HelpCircle, Save, CheckCircle2, AlertTriangle, RefreshCw, FileText, X } from "lucide-react";
+import { Upload, HelpCircle, Save, CheckCircle2, AlertTriangle, RefreshCw, FileText, X, Scan, Loader2 } from "lucide-react";
 
 interface IndentFormProps {
   employees: Employee[];
@@ -17,6 +17,74 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
   
   // Validation State
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // ID Scanner state
+  const [scanningId, setScanningId] = useState(false);
+  const [idScanError, setIdScanError] = useState("");
+  const [idScanSuccess, setIdScanSuccess] = useState("");
+
+  const handleIdScan = async (file: File) => {
+    setScanningId(true);
+    setIdScanError("");
+    setIdScanSuccess("");
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64Data = reader.result as string;
+          const res = await fetch("/api/job-cards/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileType: "id_document",
+              fileData: base64Data,
+              mimeType: file.type || "image/png",
+              fileName: file.name
+            })
+          });
+
+          const result = await res.json();
+          if (!res.ok) {
+            throw new Error(result.error || "ID scanning failed.");
+          }
+
+          const data = result.scannedData;
+          
+          setTravelerForm(prev => {
+            const updated = { ...prev };
+            if (data.name) updated.name = data.name;
+            if (data.passportNumber) updated.passportNumber = data.passportNumber;
+            if (data.passportIssueDate) updated.passportIssueDate = data.passportIssueDate;
+            if (data.passportExpiryDate) updated.passportExpiryDate = data.passportExpiryDate;
+            if (data.aadharPanNumber) updated.aadharPanNumber = data.aadharPanNumber;
+            return updated;
+          });
+
+          setIdScanSuccess("ID scanned successfully! Details filled in form.");
+        } catch (err: any) {
+          setIdScanError(err.message || "Failed to scan the ID.");
+        } finally {
+          setScanningId(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setIdScanError("Failed to read file.");
+      setScanningId(false);
+    }
+  };
+
+  const handleIdDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleIdDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleIdScan(e.dataTransfer.files[0]);
+    }
+  };
 
   const nextStep = () => {
     const section2Errors = validateSection2();
@@ -78,6 +146,12 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
     extraBaggageRequired: false,
     photograph: "", // simulated url
     supportingDocuments: "", // simulated url
+
+    // Train Specific fields
+    trainPreferredClass: "3AC",
+    trainBerthPreference: "No Preference",
+    trainMealPreference: "No Meal",
+    trainPreferredNumber: "",
 
     // International Specific fields
     presentLocationAbroad: "",
@@ -274,12 +348,18 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
       if (!t.costCentre.trim()) errors.traveler_costCentre = "Billing Cost Centre code is mandatory.";
 
       // Conditional sections validation depending on Selected travel Category
-      const isDomestic = travelForm.type === "DOMESTIC" || travelForm.type === "SL";
+      const isDomestic = travelForm.type === "DOMESTIC" || travelForm.type === "BUS" || travelForm.type === "CAB";
       const isInternational = travelForm.type === "INTERNATIONAL" || travelForm.type === "INTERNATIONAL_RETURN";
+      const isTrain = travelForm.type === "TRAIN";
 
       if (isDomestic) {
         if (!t.baseCity.trim()) errors.traveler_baseCity = "Base City state is required.";
         if (!t.nearestAirport.trim()) errors.traveler_nearestAirport = "Nearest Domestic Airport is required.";
+      }
+
+      if (isTrain) {
+        if (!t.baseCity.trim()) errors.traveler_baseCity = "Base City is required.";
+        if (!t.nearestRailwayStation.trim()) errors.traveler_nearestRailwayStation = "Nearest Railway Station is required.";
       }
 
       if (isInternational) {
@@ -378,6 +458,12 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
           extra_baggage_required: travelerForm.extraBaggageRequired,
           photograph_url: travelerForm.photograph || undefined,
           supporting_documents_url: travelerForm.supportingDocuments || undefined,
+          
+          // Train
+          train_preferred_class: travelerForm.trainPreferredClass || undefined,
+          train_berth_preference: travelerForm.trainBerthPreference || undefined,
+          train_meal_preference: travelerForm.trainMealPreference || undefined,
+          train_preferred_number: travelerForm.trainPreferredNumber || undefined,
 
           // International
           present_location_abroad: travelerForm.presentLocationAbroad || undefined,
@@ -435,8 +521,8 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
       {/* Form Header */}
       <div className="bg-slate-950 px-8 py-6 text-white flex justify-between items-center border-b border-slate-900">
         <div>
-          <h2 id="form-heading" className="text-2xl font-black uppercase tracking-tighter">Create Travel Indent</h2>
-          <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mt-1">Hemraj Group Personal Travel Desk System Initialization</p>
+          <h2 id="form-heading" className="text-2xl font-black uppercase tracking-tighter">New Travel Request</h2>
+          <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mt-1">Hemraj Group Personal Travel Desk</p>
         </div>
         <button 
           onClick={onCancel}
@@ -454,7 +540,7 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
           <div className="bg-orange-50 border-2 border-orange-200 p-5 rounded-2xl flex items-start gap-4 text-orange-950 text-xs font-bold uppercase tracking-wide">
             <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
             <div>
-              <span className="font-black block text-sm">Please fix the following validation warnings:</span>
+              <span className="font-black block text-sm">Please fix the following errors:</span>
               <ul className="list-disc pl-5 mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-4 text-[11px] font-bold text-orange-900">
                 {Object.entries(formErrors).map(([key, msg]) => (
                   <li key={key}>{msg}</li>
@@ -472,6 +558,26 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
                 1
               </div>
               <h3 className="text-base font-black text-slate-900 uppercase tracking-wider">User Selection (Traveler Assignment)</h3>
+            </div>
+
+            {/* Travel Category */}
+            <div className="mb-6 max-w-md">
+              <label htmlFor="input-travel-type" className="block text-xs font-bold text-slate-600 uppercase mb-1.5 font-sans tracking-wider">
+                Travel Type *
+              </label>
+              <select
+                id="input-travel-type"
+                name="type"
+                value={travelForm.type}
+                onChange={handleTravelFormChange}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/25 focus:border-teal-600 transition font-bold"
+              >
+                <option value="DOMESTIC">Domestic</option>
+                <option value="INTERNATIONAL">International</option>
+                <option value="INTERNATIONAL_RETURN">International Return</option>
+                <option value="SL">Special / Sick Leave</option>
+                <option value="LOCAL">Local Run</option>
+              </select>
             </div>
 
             {/* Selector Tabs: Existing Employee vs Register Profile */}
@@ -584,8 +690,47 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
             ) : (
               /* NEW TRAVELER PROFILE FORM FIELDS */
               <div className="space-y-6">
-                <div className="p-4 bg-teal-50/50 rounded-xl border border-teal-100 text-xs text-teal-800 mb-2">
-                  <strong>Corporate Rules Information:</strong> Registering traveler profiles here automatically registers them inside the <code>employees</code> master table matching primary index.
+                <div className="p-4 bg-teal-50/50 rounded-xl border border-teal-100 text-xs text-teal-800 mb-2 font-bold">
+                  Note: Registering a traveler here will automatically save them to the main employee directory.
+                </div>
+
+                {/* ID OCR Scanner Upload Zone */}
+                <div 
+                  onDragOver={handleIdDragOver}
+                  onDrop={handleIdDrop}
+                  className="bg-slate-50 border-2 border-dashed border-teal-300 hover:border-teal-500 rounded-2xl p-6 text-center cursor-pointer transition-all relative"
+                >
+                  {scanningId && (
+                    <div className="absolute inset-0 bg-white/90 rounded-2xl flex flex-col items-center justify-center z-10">
+                      <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-2" />
+                      <span className="text-xs font-bold text-teal-800">Scanning ID document, please wait...</span>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    id="id-scanner-upload"
+                    className="hidden"
+                    accept="image/*,.pdf"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) handleIdScan(e.target.files[0]);
+                    }}
+                  />
+                  <label htmlFor="id-scanner-upload" className="cursor-pointer block">
+                    <Scan className="w-8 h-8 text-teal-500 mx-auto mb-2" />
+                    <span className="block text-sm font-bold text-slate-700">Scan ID Document to Auto-Fill</span>
+                    <span className="text-xs text-slate-500 block mt-1">Drag & drop passport or ID card (PDF/Image) here, or click to choose file</span>
+                  </label>
+
+                  {idScanSuccess && (
+                    <div className="mt-3 text-xs font-bold text-teal-600 bg-teal-50 py-1.5 px-3 rounded-lg inline-block">
+                      {idScanSuccess}
+                    </div>
+                  )}
+                  {idScanError && (
+                    <div className="mt-3 text-xs font-bold text-rose-600 bg-rose-50 py-1.5 px-3 rounded-lg inline-block">
+                      {idScanError}
+                    </div>
+                  )}
                 </div>
 
                 {/* Shared Traveler Information */}
@@ -788,461 +933,670 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
                 </div>
 
                 {/* DYNAMIC PROFILE FIELD RENDERER BY CATEGORY TYPE */}
-                {(travelForm.type === "DOMESTIC" || travelForm.type === "SL") ? (
-                  /* DOMESTIC PROFILE FIELDS */
-                  <div className="bg-slate-50/50 rounded-xl p-5 border border-slate-100 mt-6">
-                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
-                      Domestic Traveler Specifics
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                      <div>
-                        <label htmlFor="input-traveler-baseCity" className="block text-xs font-bold text-slate-500 mb-1">
-                          Base City *
-                        </label>
-                        <input
-                          id="input-traveler-baseCity"
-                          type="text"
-                          name="baseCity"
-                          placeholder="Mumbai, Nagpur, Delhi"
-                          value={travelerForm.baseCity}
-                          onChange={handleTravelerFormChange}
-                          className={`w-full bg-white border ${formErrors.traveler_baseCity ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
-                        />
-                        {formErrors.traveler_baseCity && (
-                          <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_baseCity}</span>
-                        )}
-                      </div>
-
-                      <div>
-                        <label htmlFor="input-traveler-nearestAirport" className="block text-xs font-bold text-slate-500 mb-1">
-                          Nearest Airport *
-                        </label>
-                        <input
-                          id="input-traveler-nearestAirport"
-                          type="text"
-                          name="nearestAirport"
-                          placeholder="e.g. BOM, Airport Road"
-                          value={travelerForm.nearestAirport}
-                          onChange={handleTravelerFormChange}
-                          className={`w-full bg-white border ${formErrors.traveler_nearestAirport ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
-                        />
-                        {formErrors.traveler_nearestAirport && (
-                          <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_nearestAirport}</span>
-                        )}
-                      </div>
-
-                      <div>
-                        <label htmlFor="input-traveler-nearestRailwayStation" className="block text-xs font-bold text-slate-500 mb-1">
-                          Nearest Railway Stn.
-                        </label>
-                        <input
-                          id="input-traveler-nearestRailwayStation"
-                          type="text"
-                          name="nearestRailwayStation"
-                          placeholder="Nagpur station"
-                          value={travelerForm.nearestRailwayStation}
-                          onChange={handleTravelerFormChange}
-                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                        />
-                      </div>
-
-                      <div className="md:col-span-2">
-                        <span className="block text-xs font-bold text-slate-500 mb-2">Default Transport Mode</span>
-                        <div className="flex flex-wrap gap-4">
-                          {["Flight", "SL", "3AC", "2AC", "Other"].map(mode => (
-                            <label key={mode} className="inline-flex items-center text-xs font-medium text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="defaultModeOfTransport"
-                                value={mode}
-                                checked={travelerForm.defaultModeOfTransport === mode}
-                                onChange={handleTravelerFormChange}
-                                className="mr-1.5 accent-teal-600"
-                              />
-                              {mode}
+                {(() => {
+                  if (travelForm.type === "DOMESTIC" || travelForm.type === "BUS" || travelForm.type === "CAB") {
+                    return (
+                      /* DOMESTIC PROFILE FIELDS */
+                      <div className="bg-slate-50/50 rounded-xl p-5 border border-slate-100 mt-6">
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+                          Domestic Traveler Specifics
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                          <div>
+                            <label htmlFor="input-traveler-baseCity" className="block text-xs font-bold text-slate-500 mb-1">
+                              Base City *
                             </label>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="md:col-span-1">
-                        <span className="block text-[11px] font-bold text-slate-500 mb-2">Extra Baggage Required?</span>
-                        <div className="flex gap-4">
-                          <label className="inline-flex items-center text-xs font-medium text-slate-700 cursor-pointer">
                             <input
-                              type="radio"
-                              name="extraBaggageRequired"
-                              value="true"
-                              checked={travelerForm.extraBaggageRequired === true}
+                              id="input-traveler-baseCity"
+                              type="text"
+                              name="baseCity"
+                              placeholder="Mumbai, Nagpur, Delhi"
+                              value={travelerForm.baseCity}
                               onChange={handleTravelerFormChange}
-                              className="mr-1.5 accent-teal-600"
+                              className={`w-full bg-white border ${formErrors.traveler_baseCity ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
                             />
-                            Yes Req. (Extra weight)
-                          </label>
-                          <label className="inline-flex items-center text-xs font-medium text-slate-700 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="extraBaggageRequired"
-                              value="false"
-                              checked={travelerForm.extraBaggageRequired === false}
-                              onChange={handleTravelerFormChange}
-                              className="mr-1.5 accent-teal-600"
-                            />
-                            No
-                          </label>
-                        </div>
-                      </div>
-                    </div>
+                            {formErrors.traveler_baseCity && (
+                              <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_baseCity}</span>
+                            )}
+                          </div>
 
-                    {/* DOMESTIC FILE UPLOADS */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5 pt-3 border-t border-slate-100">
-                      <div>
-                        <span className="block text-xs font-bold text-slate-500 mb-2">Photograph Upload</span>
-                        <div
-                          onDragOver={handleDragOver}
-                          onDrop={(e) => handleDrop(e, "photograph")}
-                          className="border-2 border-dashed border-slate-200 hover:border-teal-500 bg-white rounded-xl p-4 text-center cursor-pointer transition-colors"
-                        >
-                          <input
-                            type="file"
-                            id="upload-photo"
-                            className="hidden"
-                            accept="image/*"
-                            onChange={(e) => handleFileInputChange(e, "photograph")}
-                          />
-                          <label htmlFor="upload-photo" className="cursor-pointer">
-                            <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
-                            <span className="block text-xs font-bold text-slate-600 hover:text-teal-700">Choose photograph file or drag & drop</span>
-                            <span className="text-[10px] text-slate-400 block mt-1">Accepts PNG, JPG</span>
-                          </label>
-                          {uploadingFiles.photograph && (
-                            <div className="mt-2 text-left">
-                              <span className="text-[10px] font-mono block text-slate-500 truncate">{uploadingFiles.photograph.name}</span>
-                              <div className="w-full bg-slate-100 rounded-full h-1 mt-1 overflow-hidden">
-                                <div
-                                  className={`h-full ${uploadingFiles.photograph.error ? "bg-rose-500" : "bg-teal-500"}`}
-                                  style={{ width: `${uploadingFiles.photograph.progress}%` }}
-                                ></div>
-                              </div>
-                              {uploadingFiles.photograph.error && (
-                                <span className="text-[9px] font-bold text-rose-500 mt-0.5 block">{uploadingFiles.photograph.error}</span>
+                          <div>
+                            <label htmlFor="input-traveler-nearestAirport" className="block text-xs font-bold text-slate-500 mb-1">
+                              Nearest Airport *
+                            </label>
+                            <input
+                              id="input-traveler-nearestAirport"
+                              type="text"
+                              name="nearestAirport"
+                              placeholder="e.g. BOM, Airport Road"
+                              value={travelerForm.nearestAirport}
+                              onChange={handleTravelerFormChange}
+                              className={`w-full bg-white border ${formErrors.traveler_nearestAirport ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                            />
+                            {formErrors.traveler_nearestAirport && (
+                              <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_nearestAirport}</span>
+                            )}
+                          </div>
+
+                          <div>
+                            <label htmlFor="input-traveler-nearestRailwayStation" className="block text-xs font-bold text-slate-500 mb-1">
+                              Nearest Railway Stn.
+                            </label>
+                            <input
+                              id="input-traveler-nearestRailwayStation"
+                              type="text"
+                              name="nearestRailwayStation"
+                              placeholder="Nagpur station"
+                              value={travelerForm.nearestRailwayStation}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div className="md:col-span-2">
+                            <span className="block text-xs font-bold text-slate-500 mb-2">Default Transport Mode</span>
+                            <div className="flex flex-wrap gap-4">
+                              {["Flight", "SL", "3AC", "2AC", "Other"].map(mode => (
+                                <label key={mode} className="inline-flex items-center text-xs font-medium text-slate-700 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="defaultModeOfTransport"
+                                    value={mode}
+                                    checked={travelerForm.defaultModeOfTransport === mode}
+                                    onChange={handleTravelerFormChange}
+                                    className="mr-1.5 accent-teal-600"
+                                  />
+                                  {mode}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="md:col-span-1">
+                            <span className="block text-[11px] font-bold text-slate-500 mb-2">Extra Baggage Required?</span>
+                            <div className="flex gap-4">
+                              <label className="inline-flex items-center text-xs font-medium text-slate-700 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="extraBaggageRequired"
+                                  value="true"
+                                  checked={travelerForm.extraBaggageRequired === true}
+                                  onChange={handleTravelerFormChange}
+                                  className="mr-1.5 accent-teal-600"
+                                />
+                                Yes Req. (Extra weight)
+                              </label>
+                              <label className="inline-flex items-center text-xs font-medium text-slate-700 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="extraBaggageRequired"
+                                  value="false"
+                                  checked={travelerForm.extraBaggageRequired === false}
+                                  onChange={handleTravelerFormChange}
+                                  className="mr-1.5 accent-teal-600"
+                                />
+                                No
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* DOMESTIC FILE UPLOADS */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5 pt-3 border-t border-slate-100">
+                          <div>
+                            <span className="block text-xs font-bold text-slate-500 mb-2">Photograph Upload</span>
+                            <div
+                              onDragOver={handleDragOver}
+                              onDrop={(e) => handleDrop(e, "photograph")}
+                              className="border-2 border-dashed border-slate-200 hover:border-teal-500 bg-white rounded-xl p-4 text-center cursor-pointer transition-colors"
+                            >
+                              <input
+                                type="file"
+                                id="upload-photo"
+                                className="hidden"
+                                accept="image/*"
+                                onChange={(e) => handleFileInputChange(e, "photograph")}
+                              />
+                              <label htmlFor="upload-photo" className="cursor-pointer">
+                                <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                                <span className="block text-xs font-bold text-slate-600 hover:text-teal-700">Choose photograph file or drag & drop</span>
+                                <span className="text-[10px] text-slate-400 block mt-1">Accepts PNG, JPG</span>
+                              </label>
+                              {uploadingFiles.photograph && (
+                                <div className="mt-2 text-left">
+                                  <span className="text-[10px] font-mono block text-slate-500 truncate">{uploadingFiles.photograph.name}</span>
+                                  <div className="w-full bg-slate-100 rounded-full h-1 mt-1 overflow-hidden">
+                                    <div
+                                      className={`h-full ${uploadingFiles.photograph.error ? "bg-rose-500" : "bg-teal-500"}`}
+                                      style={{ width: `${uploadingFiles.photograph.progress}%` }}
+                                    ></div>
+                                  </div>
+                                  {uploadingFiles.photograph.error && (
+                                    <span className="text-[9px] font-bold text-rose-500 mt-0.5 block">{uploadingFiles.photograph.error}</span>
+                                  )}
+                                </div>
+                              )}
+                              {travelerForm.photograph && (
+                                <div className="mt-2 text-teal-600 text-xs font-bold flex items-center justify-center gap-1">
+                                  <CheckCircle2 className="w-4 h-4" /> Attached Photograph File
+                                </div>
                               )}
                             </div>
-                          )}
-                          {travelerForm.photograph && (
-                            <div className="mt-2 text-teal-600 text-xs font-bold flex items-center justify-center gap-1">
-                              <CheckCircle2 className="w-4 h-4" /> Attached Photograph File
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                          </div>
 
-                      <div>
-                        <span className="block text-xs font-bold text-slate-500 mb-2">Supporting Docs (ID proofs, Aadhaar, etc)</span>
-                        <div
-                          onDragOver={handleDragOver}
-                          onDrop={(e) => handleDrop(e, "supportingDocuments")}
-                          className="border-2 border-dashed border-slate-200 hover:border-teal-500 bg-white rounded-xl p-4 text-center cursor-pointer transition-colors"
-                        >
-                          <input
-                            type="file"
-                            id="upload-support"
-                            className="hidden"
-                            onChange={(e) => handleFileInputChange(e, "supportingDocuments")}
-                          />
-                          <label htmlFor="upload-support" className="cursor-pointer">
-                            <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
-                            <span className="block text-xs font-bold text-slate-600 hover:text-teal-700">Choose support file or drag & drop</span>
-                            <span className="text-[10px] text-slate-400 block mt-1">Aadhaar, Voter cards</span>
-                          </label>
-                          {uploadingFiles.supportingDocuments && (
-                            <div className="mt-2 text-left">
-                              <span className="text-[10px] font-mono block text-slate-500 truncate">{uploadingFiles.supportingDocuments.name}</span>
-                              <div className="w-full bg-slate-100 rounded-full h-1 mt-1 overflow-hidden">
-                                <div
-                                  className={`h-full ${uploadingFiles.supportingDocuments.error ? "bg-rose-500" : "bg-teal-500"}`}
-                                  style={{ width: `${uploadingFiles.supportingDocuments.progress}%` }}
-                                ></div>
-                              </div>
-                              {uploadingFiles.supportingDocuments.error && (
-                                <span className="text-[9px] font-bold text-rose-500 mt-0.5 block">{uploadingFiles.supportingDocuments.error}</span>
+                          <div>
+                            <span className="block text-xs font-bold text-slate-500 mb-2">Supporting Docs (ID proofs, Aadhaar, etc)</span>
+                            <div
+                              onDragOver={handleDragOver}
+                              onDrop={(e) => handleDrop(e, "supportingDocuments")}
+                              className="border-2 border-dashed border-slate-200 hover:border-teal-500 bg-white rounded-xl p-4 text-center cursor-pointer transition-colors"
+                            >
+                              <input
+                                type="file"
+                                id="upload-support"
+                                className="hidden"
+                                onChange={(e) => handleFileInputChange(e, "supportingDocuments")}
+                              />
+                              <label htmlFor="upload-support" className="cursor-pointer">
+                                <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                                <span className="block text-xs font-bold text-slate-600 hover:text-teal-700">Choose support file or drag & drop</span>
+                                <span className="text-[10px] text-slate-400 block mt-1">Aadhaar, Voter cards</span>
+                              </label>
+                              {uploadingFiles.supportingDocuments && (
+                                <div className="mt-2 text-left">
+                                  <span className="text-[10px] font-mono block text-slate-500 truncate">{uploadingFiles.supportingDocuments.name}</span>
+                                  <div className="w-full bg-slate-100 rounded-full h-1 mt-1 overflow-hidden">
+                                    <div
+                                      className={`h-full ${uploadingFiles.supportingDocuments.error ? "bg-rose-500" : "bg-teal-500"}`}
+                                      style={{ width: `${uploadingFiles.supportingDocuments.progress}%` }}
+                                    ></div>
+                                  </div>
+                                  {uploadingFiles.supportingDocuments.error && (
+                                    <span className="text-[9px] font-bold text-rose-500 mt-0.5 block">{uploadingFiles.supportingDocuments.error}</span>
+                                  )}
+                                </div>
+                              )}
+                              {travelerForm.supportingDocuments && (
+                                <div className="mt-2 text-teal-600 text-xs font-bold flex items-center justify-center gap-1">
+                                  <CheckCircle2 className="w-4 h-4" /> Attached Support Documents
+                                </div>
                               )}
                             </div>
-                          )}
-                          {travelerForm.supportingDocuments && (
-                            <div className="mt-2 text-teal-600 text-xs font-bold flex items-center justify-center gap-1">
-                              <CheckCircle2 className="w-4 h-4" /> Attached Support Documents
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  } else if (travelForm.type === "TRAIN") {
+                    return (
+                      /* TRAIN PROFILE FIELDS */
+                      <div className="bg-slate-50/50 rounded-xl p-5 border border-slate-100 mt-6">
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+                          Train Traveler Specifics
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                          <div>
+                            <label htmlFor="input-traveler-baseCity-train" className="block text-xs font-bold text-slate-500 mb-1">
+                              Base City *
+                            </label>
+                            <input
+                              id="input-traveler-baseCity-train"
+                              type="text"
+                              name="baseCity"
+                              placeholder="Mumbai, Nagpur, Delhi"
+                              value={travelerForm.baseCity}
+                              onChange={handleTravelerFormChange}
+                              className={`w-full bg-white border ${formErrors.traveler_baseCity ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                            />
+                            {formErrors.traveler_baseCity && (
+                              <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_baseCity}</span>
+                            )}
+                          </div>
+
+                          <div>
+                            <label htmlFor="input-traveler-nearestRailwayStation-train" className="block text-xs font-bold text-slate-500 mb-1">
+                              Nearest Railway Station *
+                            </label>
+                            <input
+                              id="input-traveler-nearestRailwayStation-train"
+                              type="text"
+                              name="nearestRailwayStation"
+                              placeholder="Nagpur Station"
+                              value={travelerForm.nearestRailwayStation}
+                              onChange={handleTravelerFormChange}
+                              className={`w-full bg-white border ${formErrors.traveler_nearestRailwayStation ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                            />
+                            {formErrors.traveler_nearestRailwayStation && (
+                              <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_nearestRailwayStation}</span>
+                            )}
+                          </div>
+
+                          <div>
+                            <label htmlFor="input-traveler-trainPreferredClass" className="block text-xs font-bold text-slate-500 mb-1">
+                              Preferred Train Class
+                            </label>
+                            <select
+                              id="input-traveler-trainPreferredClass"
+                              name="trainPreferredClass"
+                              value={travelerForm.trainPreferredClass}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm cursor-pointer"
+                            >
+                              <option value="1AC">1AC (First AC)</option>
+                              <option value="2AC">2AC (Second AC)</option>
+                              <option value="3AC">3AC (Third AC)</option>
+                              <option value="Sleeper">Sleeper Class</option>
+                              <option value="CC">CC (AC Chair Car)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label htmlFor="input-traveler-trainBerthPreference" className="block text-xs font-bold text-slate-500 mb-1">
+                              Berth Preference
+                            </label>
+                            <select
+                              id="input-traveler-trainBerthPreference"
+                              name="trainBerthPreference"
+                              value={travelerForm.trainBerthPreference}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm cursor-pointer"
+                            >
+                              <option value="No Preference">No Preference</option>
+                              <option value="Lower">Lower Berth</option>
+                              <option value="Middle">Middle Berth</option>
+                              <option value="Upper">Upper Berth</option>
+                              <option value="Side Lower">Side Lower</option>
+                              <option value="Side Upper">Side Upper</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label htmlFor="input-traveler-trainMealPreference" className="block text-xs font-bold text-slate-500 mb-1">
+                              Meal Choice
+                            </label>
+                            <select
+                              id="input-traveler-trainMealPreference"
+                              name="trainMealPreference"
+                              value={travelerForm.trainMealPreference}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm cursor-pointer"
+                            >
+                              <option value="No Meal">No Meal</option>
+                              <option value="Veg">Vegetarian</option>
+                              <option value="Non-Veg">Non-Vegetarian</option>
+                              <option value="Jain Meal">Jain Meal</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label htmlFor="input-traveler-trainPreferredNumber" className="block text-xs font-bold text-slate-500 mb-1">
+                              Preferred Train Name/No. (Optional)
+                            </label>
+                            <input
+                              id="input-traveler-trainPreferredNumber"
+                              type="text"
+                              name="trainPreferredNumber"
+                              placeholder="e.g. 12289 Duronto Exp"
+                              value={travelerForm.trainPreferredNumber}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Train File Uploads */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5 pt-3 border-t border-slate-100">
+                          <div>
+                            <span className="block text-xs font-bold text-slate-500 mb-2">Photograph Upload</span>
+                            <div
+                              onDragOver={handleDragOver}
+                              onDrop={(e) => handleDrop(e, "photograph")}
+                              className="border-2 border-dashed border-slate-200 hover:border-teal-500 bg-white rounded-xl p-4 text-center cursor-pointer transition-colors"
+                            >
+                              <input
+                                type="file"
+                                id="upload-photo-train"
+                                className="hidden"
+                                accept="image/*"
+                                onChange={(e) => handleFileInputChange(e, "photograph")}
+                              />
+                              <label htmlFor="upload-photo-train" className="cursor-pointer">
+                                <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                                <span className="block text-xs font-bold text-slate-600 hover:text-teal-700">Choose photograph file or drag & drop</span>
+                                <span className="text-[10px] text-slate-400 block mt-1">Accepts PNG, JPG</span>
+                              </label>
+                              {uploadingFiles.photograph && (
+                                <div className="mt-2 text-left">
+                                  <span className="text-[10px] font-mono block text-slate-500 truncate">{uploadingFiles.photograph.name}</span>
+                                  <div className="w-full bg-slate-100 rounded-full h-1 mt-1 overflow-hidden">
+                                    <div
+                                      className={`h-full ${uploadingFiles.photograph.error ? "bg-rose-500" : "bg-teal-500"}`}
+                                      style={{ width: `${uploadingFiles.photograph.progress}%` }}
+                                    ></div>
+                                  </div>
+                                  {uploadingFiles.photograph.error && (
+                                    <span className="text-[9px] font-bold text-rose-500 mt-0.5 block">{uploadingFiles.photograph.error}</span>
+                                  )}
+                                </div>
+                              )}
+                              {travelerForm.photograph && (
+                                <div className="mt-2 text-teal-600 text-xs font-bold flex items-center justify-center gap-1">
+                                  <CheckCircle2 className="w-4 h-4" /> Attached Photograph File
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* INTERNATIONAL PROFILE FIELDS */
-                  <div className="bg-slate-50/50 rounded-xl p-5 border border-slate-100 mt-6">
-                    <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
-                      Additional Details: International Travel
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                      <div>
-                        <label htmlFor="input-traveler-presentLocationAbroad" className="block text-xs font-bold text-slate-550 mb-1">
-                          Location Abroad
-                        </label>
-                        <input
-                          id="input-traveler-presentLocationAbroad"
-                          type="text"
-                          name="presentLocationAbroad"
-                          placeholder="e.g. Lagos, Nigeria"
-                          value={travelerForm.presentLocationAbroad}
-                          onChange={handleTravelerFormChange}
-                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                        />
-                      </div>
+                          </div>
 
-                      <div>
-                        <span className="block text-[11px] font-bold text-slate-555 mb-2">Assigned Plant / Site</span>
-                        <div className="flex gap-4">
-                          {["Sunagrow", "Ricefield", "Other"].map(site => (
-                            <label key={site} className="inline-flex items-center text-xs text-slate-700 cursor-pointer">
+                          <div>
+                            <span className="block text-xs font-bold text-slate-500 mb-2">Supporting Docs (ID proofs, Aadhaar, etc)</span>
+                            <div
+                              onDragOver={handleDragOver}
+                              onDrop={(e) => handleDrop(e, "supportingDocuments")}
+                              className="border-2 border-dashed border-slate-200 hover:border-teal-500 bg-white rounded-xl p-4 text-center cursor-pointer transition-colors"
+                            >
                               <input
-                                type="radio"
-                                name="assignedPlantSite"
-                                value={site}
-                                checked={travelerForm.assignedPlantSite === site}
-                                onChange={handleTravelerFormChange}
-                                className="mr-1 accent-teal-600"
+                                type="file"
+                                id="upload-support-train"
+                                className="hidden"
+                                onChange={(e) => handleFileInputChange(e, "supportingDocuments")}
                               />
-                              {site}
+                              <label htmlFor="upload-support-train" className="cursor-pointer">
+                                <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                                <span className="block text-xs font-bold text-slate-600 hover:text-teal-700">Choose support file or drag & drop</span>
+                                <span className="text-[10px] text-slate-400 block mt-1">Aadhaar, Voter cards</span>
+                              </label>
+                              {uploadingFiles.supportingDocuments && (
+                                <div className="mt-2 text-left">
+                                  <span className="text-[10px] font-mono block text-slate-500 truncate">{uploadingFiles.supportingDocuments.name}</span>
+                                  <div className="w-full bg-slate-100 rounded-full h-1 mt-1 overflow-hidden">
+                                    <div
+                                      className={`h-full ${uploadingFiles.supportingDocuments.error ? "bg-rose-500" : "bg-teal-500"}`}
+                                      style={{ width: `${uploadingFiles.supportingDocuments.progress}%` }}
+                                    ></div>
+                                  </div>
+                                  {uploadingFiles.supportingDocuments.error && (
+                                    <span className="text-[9px] font-bold text-rose-500 mt-0.5 block">{uploadingFiles.supportingDocuments.error}</span>
+                                  )}
+                                </div>
+                              )}
+                              {travelerForm.supportingDocuments && (
+                                <div className="mt-2 text-teal-600 text-xs font-bold flex items-center justify-center gap-1">
+                                  <CheckCircle2 className="w-4 h-4" /> Attached Support Documents
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  } else if (travelForm.type === "INTERNATIONAL" || travelForm.type === "INTERNATIONAL_RETURN") {
+                    return (
+                      /* INTERNATIONAL PROFILE FIELDS */
+                      <div className="bg-slate-50/50 rounded-xl p-5 border border-slate-100 mt-6">
+                        <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+                          Additional Details: International Travel
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                          <div>
+                            <label htmlFor="input-traveler-presentLocationAbroad" className="block text-xs font-bold text-slate-550 mb-1">
+                              Location Abroad
                             </label>
-                          ))}
-                        </div>
-                      </div>
+                            <input
+                              id="input-traveler-presentLocationAbroad"
+                              type="text"
+                              name="presentLocationAbroad"
+                              placeholder="e.g. Lagos, Nigeria"
+                              value={travelerForm.presentLocationAbroad}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </div>
 
-                      <div>
-                        <label htmlFor="input-traveler-nearestAirportIndia" className="block text-xs font-bold text-slate-550 mb-1">
-                          Nearest Airport (India)
-                        </label>
-                        <input
-                          id="input-traveler-nearestAirportIndia"
-                          type="text"
-                          name="nearestAirportIndia"
-                          placeholder="e.g. BOM Mumbai, Nagpur"
-                          value={travelerForm.nearestAirportIndia}
-                          onChange={handleTravelerFormChange}
-                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                        />
-                      </div>
+                          <div>
+                            <span className="block text-[11px] font-bold text-slate-555 mb-2">Assigned Plant / Site</span>
+                            <div className="flex gap-4">
+                              {["Sunagrow", "Ricefield", "Other"].map(site => (
+                                <label key={site} className="inline-flex items-center text-xs text-slate-700 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="assignedPlantSite"
+                                    value={site}
+                                    checked={travelerForm.assignedPlantSite === site}
+                                    onChange={handleTravelerFormChange}
+                                    className="mr-1 accent-teal-600"
+                                  />
+                                  {site}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
 
-                      <div>
-                        <label htmlFor="input-traveler-passportNumber" className="block text-xs font-bold text-slate-550 mb-1">
-                          Passport Number
-                        </label>
-                        <input
-                          id="input-traveler-passportNumber"
-                          type="text"
-                          name="passportNumber"
-                          placeholder="A01234567"
-                          value={travelerForm.passportNumber}
-                          onChange={handleTravelerFormChange}
-                          className={`w-full bg-white border ${formErrors.traveler_passportNumber ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
-                        />
-                        {formErrors.traveler_passportNumber && (
-                          <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_passportNumber}</span>
-                        )}
-                      </div>
+                          <div>
+                            <label htmlFor="input-traveler-nearestAirportIndia" className="block text-xs font-bold text-slate-550 mb-1">
+                              Nearest Airport (India)
+                            </label>
+                            <input
+                              id="input-traveler-nearestAirportIndia"
+                              type="text"
+                              name="nearestAirportIndia"
+                              placeholder="e.g. BOM Mumbai, Nagpur"
+                              value={travelerForm.nearestAirportIndia}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </div>
 
-                      <div>
-                        <label htmlFor="input-traveler-passportIssueDate" className="block text-xs font-bold text-slate-550 mb-1">
-                          Passport Issue Date
-                        </label>
-                        <input
-                          id="input-traveler-passportIssueDate"
-                          type="date"
-                          name="passportIssueDate"
-                          value={travelerForm.passportIssueDate}
-                          onChange={handleTravelerFormChange}
-                          className={`w-full bg-white border ${formErrors.traveler_passportIssueDate ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
-                        />
-                        {formErrors.traveler_passportIssueDate && (
-                          <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_passportIssueDate}</span>
-                        )}
-                      </div>
+                          <div>
+                            <label htmlFor="input-traveler-passportNumber" className="block text-xs font-bold text-slate-550 mb-1">
+                              Passport Number
+                            </label>
+                            <input
+                              id="input-traveler-passportNumber"
+                              type="text"
+                              name="passportNumber"
+                              placeholder="A01234567"
+                              value={travelerForm.passportNumber}
+                              onChange={handleTravelerFormChange}
+                              className={`w-full bg-white border ${formErrors.traveler_passportNumber ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                            />
+                            {formErrors.traveler_passportNumber && (
+                              <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_passportNumber}</span>
+                            )}
+                          </div>
 
-                      <div>
-                        <label htmlFor="input-traveler-passportExpiryDate" className="block text-xs font-bold text-slate-550 mb-1">
-                          Passport Expiry Date
-                        </label>
-                        <input
-                          id="input-traveler-passportExpiryDate"
-                          type="date"
-                          name="passportExpiryDate"
-                          value={travelerForm.passportExpiryDate}
-                          onChange={handleTravelerFormChange}
-                          className={`w-full bg-white border ${formErrors.traveler_passportExpiryDate ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
-                        />
-                        {formErrors.traveler_passportExpiryDate && (
-                          <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_passportExpiryDate}</span>
-                        )}
-                      </div>
+                          <div>
+                            <label htmlFor="input-traveler-passportIssueDate" className="block text-xs font-bold text-slate-550 mb-1">
+                              Passport Issue Date
+                            </label>
+                            <input
+                              id="input-traveler-passportIssueDate"
+                              type="date"
+                              name="passportIssueDate"
+                              value={travelerForm.passportIssueDate}
+                              onChange={handleTravelerFormChange}
+                              className={`w-full bg-white border ${formErrors.traveler_passportIssueDate ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                            />
+                            {formErrors.traveler_passportIssueDate && (
+                              <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_passportIssueDate}</span>
+                            )}
+                          </div>
 
-                      {/* Passport Scan uploads */}
-                      <div>
-                        <span className="block text-xs font-bold text-slate-550 mb-1.5">Passport Front Scan *</span>
-                        <div className="relative border border-dashed border-slate-200 bg-white rounded-lg p-2 text-center text-[11px]">
-                          <input
-                            type="file"
-                            id="upload-passfront"
-                            className="hidden"
-                            onChange={(e) => handleFileInputChange(e, "passportFrontPage")}
-                          />
-                          <label htmlFor="upload-passfront" className="cursor-pointer block p-1">
-                            <Upload className="w-4 h-4 text-slate-400 mx-auto mb-1" />
-                            <span className="font-bold text-teal-800">Attach Page</span>
-                          </label>
-                          {travelerForm.passportFrontPage && <div className="text-[10px] text-teal-600 font-bold">✓ Attached Scan</div>}
-                        </div>
-                      </div>
+                          <div>
+                            <label htmlFor="input-traveler-passportExpiryDate" className="block text-xs font-bold text-slate-550 mb-1">
+                              Passport Expiry Date
+                            </label>
+                            <input
+                              id="input-traveler-passportExpiryDate"
+                              type="date"
+                              name="passportExpiryDate"
+                              value={travelerForm.passportExpiryDate}
+                              onChange={handleTravelerFormChange}
+                              className={`w-full bg-white border ${formErrors.traveler_passportExpiryDate ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                            />
+                            {formErrors.traveler_passportExpiryDate && (
+                              <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_passportExpiryDate}</span>
+                            )}
+                          </div>
 
-                      <div>
-                        <span className="block text-xs font-bold text-slate-550 mb-1.5">Passport Back Scan</span>
-                        <div className="relative border border-dashed border-slate-200 bg-white rounded-lg p-2 text-center text-[11px]">
-                          <input
-                            type="file"
-                            id="upload-passback"
-                            className="hidden"
-                            onChange={(e) => handleFileInputChange(e, "passportBackPage")}
-                          />
-                          <label htmlFor="upload-passback" className="cursor-pointer block p-1">
-                            <Upload className="w-4 h-4 text-slate-400 mx-auto mb-1" />
-                            <span className="font-bold text-teal-800">Attach Page</span>
-                          </label>
-                          {travelerForm.passportBackPage && <div className="text-[10px] text-teal-600 font-bold">✓ Attached Scan</div>}
-                        </div>
-                      </div>
-
-                      <div>
-                        <span className="block text-xs font-bold text-slate-550 mb-1.5">Offer/Appt. Letter</span>
-                        <div className="relative border border-dashed border-slate-200 bg-white rounded-lg p-2 text-center text-[11px]">
-                          <input
-                            type="file"
-                            id="upload-offer"
-                            className="hidden"
-                            onChange={(e) => handleFileInputChange(e, "offerLetter")}
-                          />
-                          <label htmlFor="upload-offer" className="cursor-pointer block p-1">
-                            <Upload className="w-4 h-4 text-slate-400 mx-auto mb-1" />
-                            <span className="font-bold text-teal-800">Attach Offer Letter</span>
-                          </label>
-                          {travelerForm.offerLetter && <div className="text-[10px] text-teal-600 font-bold">✓ Attached Letter</div>}
-                        </div>
-                      </div>
-
-                      {/* Vaccines */}
-                      <div>
-                        <span className="block text-xs font-bold text-slate-550 mb-1">Polio Vaccine Status</span>
-                        <div className="flex gap-2">
-                          {["Vaccinated", "Not Vaccinated", "Pending"].map(v => (
-                            <label key={v} className="inline-flex items-center text-[11px] text-slate-700 cursor-pointer">
+                          {/* Passport Scan uploads */}
+                          <div>
+                            <span className="block text-xs font-bold text-slate-555 mb-1.5">Passport Front Scan *</span>
+                            <div className="relative border border-dashed border-slate-200 bg-white rounded-lg p-2 text-center text-[11px]">
                               <input
-                                type="radio"
-                                name="polioVaccineStatus"
-                                value={v}
-                                checked={travelerForm.polioVaccineStatus === v}
-                                onChange={handleTravelerFormChange}
+                                type="file"
+                                id="upload-passfront"
+                                className="hidden"
+                                onChange={(e) => handleFileInputChange(e, "passportFrontPage")}
                               />
-                              <span className="ml-0.5">{v.split(" ")[0]}</span>
-                            </label>
-                          ))}
-                        </div>
-                        <input
-                          type="date"
-                          name="polioCertificateExpiry"
-                          value={travelerForm.polioCertificateExpiry}
-                          onChange={handleTravelerFormChange}
-                          placeholder="Cert Expiry"
-                          className="w-full mt-1 bg-white border border-slate-200 rounded-md p-1.5 text-[10px]"
-                        />
-                      </div>
+                              <label htmlFor="upload-passfront" className="cursor-pointer block p-1">
+                                <Upload className="w-4 h-4 text-slate-400 mx-auto mb-1" />
+                                <span className="font-bold text-teal-800">Attach Page</span>
+                              </label>
+                              {travelerForm.passportFrontPage && <div className="text-[10px] text-teal-600 font-bold">✓ Attached Scan</div>}
+                            </div>
+                          </div>
 
-                      <div>
-                        <span className="block text-xs font-bold text-slate-550 mb-1">YFV Vaccine Status</span>
-                        <div className="flex gap-2">
-                          {["Vaccinated", "Not Vaccinated", "Pending"].map(v => (
-                            <label key={v} className="inline-flex items-center text-[11px] text-slate-700 cursor-pointer">
+                          <div>
+                            <span className="block text-xs font-bold text-slate-555 mb-1.5">Passport Back Scan</span>
+                            <div className="relative border border-dashed border-slate-200 bg-white rounded-lg p-2 text-center text-[11px]">
                               <input
-                                type="radio"
-                                name="yfvStatus"
-                                value={v}
-                                checked={travelerForm.yfvStatus === v}
-                                onChange={handleTravelerFormChange}
+                                type="file"
+                                id="upload-passback"
+                                className="hidden"
+                                onChange={(e) => handleFileInputChange(e, "passportBackPage")}
                               />
-                              <span className="ml-0.5">{v.split(" ")[0]}</span>
+                              <label htmlFor="upload-passback" className="cursor-pointer block p-1">
+                                <Upload className="w-4 h-4 text-slate-400 mx-auto mb-1" />
+                                <span className="font-bold text-teal-800">Attach Page</span>
+                              </label>
+                              {travelerForm.passportBackPage && <div className="text-[10px] text-teal-600 font-bold">✓ Attached Scan</div>}
+                            </div>
+                          </div>
+
+                          <div>
+                            <span className="block text-xs font-bold text-slate-555 mb-1.5">Offer/Appt. Letter</span>
+                            <div className="relative border border-dashed border-slate-200 bg-white rounded-lg p-2 text-center text-[11px]">
+                              <input
+                                type="file"
+                                id="upload-offer"
+                                className="hidden"
+                                onChange={(e) => handleFileInputChange(e, "offerLetter")}
+                              />
+                              <label htmlFor="upload-offer" className="cursor-pointer block p-1">
+                                <Upload className="w-4 h-4 text-slate-400 mx-auto mb-1" />
+                                <span className="font-bold text-teal-800">Attach Offer Letter</span>
+                              </label>
+                              {travelerForm.offerLetter && <div className="text-[10px] text-teal-600 font-bold">✓ Attached Letter</div>}
+                            </div>
+                          </div>
+
+                          {/* Vaccines */}
+                          <div>
+                            <span className="block text-xs font-bold text-slate-550 mb-1">Polio Vaccine Status</span>
+                            <div className="flex gap-2">
+                              {["Vaccinated", "Not Vaccinated", "Pending"].map(v => (
+                                <label key={v} className="inline-flex items-center text-[11px] text-slate-700 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="polioVaccineStatus"
+                                    value={v}
+                                    checked={travelerForm.polioVaccineStatus === v}
+                                    onChange={handleTravelerFormChange}
+                                  />
+                                  <span className="ml-0.5">{v.split(" ")[0]}</span>
+                                </label>
+                              ))}
+                            </div>
+                            <input
+                              type="date"
+                              name="polioCertificateExpiry"
+                              value={travelerForm.polioCertificateExpiry}
+                              onChange={handleTravelerFormChange}
+                              placeholder="Cert Expiry"
+                              className="w-full mt-1 bg-white border border-slate-200 rounded-md p-1.5 text-[10px]"
+                            />
+                          </div>
+
+                          <div>
+                            <span className="block text-xs font-bold text-slate-550 mb-1">YFV Vaccine Status</span>
+                            <div className="flex gap-2">
+                              {["Vaccinated", "Not Vaccinated", "Pending"].map(v => (
+                                <label key={v} className="inline-flex items-center text-[11px] text-slate-700 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="yfvStatus"
+                                    value={v}
+                                    checked={travelerForm.yfvStatus === v}
+                                    onChange={handleTravelerFormChange}
+                                  />
+                                  <span className="ml-0.5">{v.split(" ")[0]}</span>
+                                </label>
+                              ))}
+                            </div>
+                            <input
+                              type="date"
+                              name="yfvCertificateExpiry"
+                              value={travelerForm.yfvCertificateExpiry}
+                              onChange={handleTravelerFormChange}
+                              placeholder="YFV Expiry"
+                              className="w-full mt-1 bg-white border border-slate-200 rounded-md p-1.5 text-[10px]"
+                            />
+                          </div>
+
+                          <div>
+                            <label htmlFor="input-traveler-visaNumber" className="block text-xs font-bold text-slate-505 mb-1">
+                              Visa Number
                             </label>
-                          ))}
+                            <input
+                              id="input-traveler-visaNumber"
+                              type="text"
+                              name="visaNumber"
+                              placeholder="e.g. IN-943029"
+                              value={travelerForm.visaNumber}
+                              onChange={handleTravelerFormChange}
+                              className={`w-full bg-white border ${formErrors.traveler_visaNumber ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                            />
+                            {formErrors.traveler_visaNumber && (
+                              <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_visaNumber}</span>
+                            )}
+                          </div>
+
+                          <div>
+                            <label htmlFor="input-traveler-visaExpiryDate" className="block text-xs font-bold text-slate-505 mb-1">
+                              Visa Expiry Date
+                            </label>
+                            <input
+                              id="input-traveler-visaExpiryDate"
+                              type="date"
+                              name="visaExpiryDate"
+                              value={travelerForm.visaExpiryDate}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label htmlFor="input-traveler-visaCountry" className="block text-xs font-bold text-slate-505 mb-1">
+                              Registration Visa Country
+                            </label>
+                            <input
+                              id="input-traveler-visaCountry"
+                              type="text"
+                              name="visaCountry"
+                              placeholder="e.g. India / Nigeria"
+                              value={travelerForm.visaCountry}
+                              onChange={handleTravelerFormChange}
+                              className={`w-full bg-white border ${formErrors.traveler_visaCountry ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                            />
+                            {formErrors.traveler_visaCountry && (
+                              <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_visaCountry}</span>
+                            )}
+                          </div>
                         </div>
-                        <input
-                          type="date"
-                          name="yfvCertificateExpiry"
-                          value={travelerForm.yfvCertificateExpiry}
-                          onChange={handleTravelerFormChange}
-                          placeholder="YFV Expiry"
-                          className="w-full mt-1 bg-white border border-slate-200 rounded-md p-1.5 text-[10px]"
-                        />
                       </div>
-
-                      <div>
-                        <label htmlFor="input-traveler-visaNumber" className="block text-xs font-bold text-slate-505 mb-1">
-                          Visa Number
-                        </label>
-                        <input
-                          id="input-traveler-visaNumber"
-                          type="text"
-                          name="visaNumber"
-                          placeholder="e.g. IN-943029"
-                          value={travelerForm.visaNumber}
-                          onChange={handleTravelerFormChange}
-                          className={`w-full bg-white border ${formErrors.traveler_visaNumber ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
-                        />
-                        {formErrors.traveler_visaNumber && (
-                          <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_visaNumber}</span>
-                        )}
-                      </div>
-
-                      <div>
-                        <label htmlFor="input-traveler-visaExpiryDate" className="block text-xs font-bold text-slate-505 mb-1">
-                          Visa Expiry Date
-                        </label>
-                        <input
-                          id="input-traveler-visaExpiryDate"
-                          type="date"
-                          name="visaExpiryDate"
-                          value={travelerForm.visaExpiryDate}
-                          onChange={handleTravelerFormChange}
-                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="input-traveler-visaCountry" className="block text-xs font-bold text-slate-505 mb-1">
-                          Registration Visa Country
-                        </label>
-                        <input
-                          id="input-traveler-visaCountry"
-                          type="text"
-                          name="visaCountry"
-                          placeholder="e.g. India / Nigeria"
-                          value={travelerForm.visaCountry}
-                          onChange={handleTravelerFormChange}
-                          className={`w-full bg-white border ${formErrors.traveler_visaCountry ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
-                        />
-                        {formErrors.traveler_visaCountry && (
-                          <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_visaCountry}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             )}
           </div>
@@ -1259,25 +1613,6 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {/* Travel Category */}
-            <div>
-              <label htmlFor="input-travel-type" className="block text-xs font-bold text-slate-600 uppercase mb-1.5 font-sans tracking-wider">
-                Travel Category *
-              </label>
-              <select
-                id="input-travel-type"
-                name="type"
-                value={travelForm.type}
-                onChange={handleTravelFormChange}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/25 focus:border-teal-600 transition font-medium"
-              >
-                <option value="DOMESTIC">DOMESTIC</option>
-                <option value="INTERNATIONAL">INTERNATIONAL</option>
-                <option value="INTERNATIONAL_RETURN">INTERNATIONAL RETURN</option>
-                <option value="SL">SL (SICK LEAVE / SPECIAL)</option>
-                <option value="LOCAL">LOCAL RUN</option>
-              </select>
-            </div>
 
             {/* GST Billing */}
             <div>

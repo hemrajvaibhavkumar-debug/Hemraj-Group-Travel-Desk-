@@ -47,7 +47,7 @@ CREATE TABLE employees (
 -- 2. Travel Indents Table
 CREATE TABLE travel_indents (
     id VARCHAR(50) PRIMARY KEY,
-    travel_type VARCHAR(100) NOT NULL CHECK (travel_type IN ('DOMESTIC', 'INTERNATIONAL', 'INTERNATIONAL_RETURN', 'SL', 'LOCAL')),
+    travel_type VARCHAR(100) NOT NULL CHECK (travel_type IN ('DOMESTIC', 'INTERNATIONAL', 'INTERNATIONAL_RETURN', 'TRAIN', 'BUS', 'CAB')),
     gst_applicable BOOLEAN NOT NULL,
     priority VARCHAR(50) NOT NULL CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
     travel_date DATE NOT NULL,

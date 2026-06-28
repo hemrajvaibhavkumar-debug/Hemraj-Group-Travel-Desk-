@@ -6,7 +6,7 @@ import { TravelCategory, PriorityLevel, Employee, TravelIndent, JobCard, JobCard
 import { GoogleGenAI } from "@google/genai";
 
 const app = express();
-const PORT = 3000;
+const PORT = 4000;
 const DB_DIR = path.join(process.cwd(), "src", "db");
 const DB_FILE = path.join(DB_DIR, "database.json");
 
@@ -210,7 +210,7 @@ function getDatabase(): SchemaDB {
     }
     const data = fs.readFileSync(DB_FILE, "utf-8");
     const parsed = JSON.parse(data);
-    
+
     // Backward compatibility & check structure
     let modified = false;
     if (!parsed.employees || !parsed.indents) {
@@ -232,7 +232,7 @@ function getDatabase(): SchemaDB {
       parsed.vendors = DEFAULT_DB_DATA.vendors || [];
       modified = true;
     }
-    
+
     if (modified) {
       fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2));
     }
@@ -356,7 +356,7 @@ app.put("/api/rbac/users/:id", (req, res) => {
     };
 
     db.rbacUsers[index] = updatedUser;
-    
+
     // If we updated the email of the active simulated user, sync it as well
     if (db.rbacSettings.activeSimulatedEmail === oldEmail) {
       db.rbacSettings.activeSimulatedEmail = email.trim().toLowerCase();
@@ -407,7 +407,7 @@ app.delete("/api/rbac/users/:id", (req, res) => {
 app.put("/api/rbac/settings", (req, res) => {
   try {
     const { senderEmail, ccRecipients, activeSimulatedEmail } = req.body;
-    
+
     if (senderEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderEmail)) {
       return res.status(400).json({ error: "Primary Sender Email has an invalid format." });
     }
@@ -464,7 +464,7 @@ app.get("/api/employees", (req, res) => {
 app.post("/api/employees", (req, res) => {
   try {
     const employee: Employee = req.body;
-    
+
     // Server-side database validation
     if (!employee.employee_code || !employee.employee_code.trim()) {
       return res.status(400).json({ error: "Employee ID (employee_code) is a required field." });
@@ -498,7 +498,7 @@ app.post("/api/employees", (req, res) => {
     }
 
     const db = getDatabase();
-    
+
     // Enforce UNIQ Constraints
     const duplicateCode = db.employees.find(e => e.employee_code.toLowerCase() === employee.employee_code.toLowerCase());
     if (duplicateCode) {
@@ -525,10 +525,10 @@ app.put("/api/employees/:employee_code", (req, res) => {
   try {
     const { employee_code } = req.params;
     const updateBody = req.body;
-    
+
     const db = getDatabase();
     const index = db.employees.findIndex(e => e.employee_code.toLowerCase() === employee_code.toLowerCase());
-    
+
     if (index === -1) {
       return res.status(404).json({ error: `Employee with code ${employee_code} not found.` });
     }
@@ -536,10 +536,10 @@ app.put("/api/employees/:employee_code", (req, res) => {
     const currentEmp = db.employees[index];
 
     // Check if passport details changed to archive the active one
-    const passportChanged = updateBody.passport_number && 
+    const passportChanged = updateBody.passport_number &&
       (updateBody.passport_number !== currentEmp.passport_number ||
-       updateBody.passport_issue_date !== currentEmp.passport_issue_date ||
-       updateBody.passport_expiry !== currentEmp.passport_expiry);
+        updateBody.passport_issue_date !== currentEmp.passport_issue_date ||
+        updateBody.passport_expiry !== currentEmp.passport_expiry);
 
     let passport_history = currentEmp.passport_history || [];
 
@@ -552,7 +552,7 @@ app.put("/api/employees/:employee_code", (req, res) => {
         passport_back_page_url: currentEmp.passport_back_page_url || "",
         archive_date: new Date().toISOString()
       };
-      
+
       // Prevent duplicate history archives
       if (!passport_history.some((h: any) => h.passport_number === historyEntry.passport_number)) {
         passport_history = [historyEntry, ...passport_history];
@@ -566,7 +566,7 @@ app.put("/api/employees/:employee_code", (req, res) => {
     };
 
     db.employees[index] = updatedEmployee;
-    
+
     if (writeDatabase(db)) {
       return res.json({ success: true, employee: updatedEmployee });
     } else {
@@ -582,13 +582,13 @@ app.delete("/api/employees/:employee_code", (req, res) => {
     const { employee_code } = req.params;
     const db = getDatabase();
     const index = db.employees.findIndex(e => e.employee_code.toLowerCase() === employee_code.toLowerCase());
-    
+
     if (index === -1) {
       return res.status(404).json({ error: `Not Found: Employee ${employee_code} not found.` });
     }
 
     db.employees.splice(index, 1);
-    
+
     if (writeDatabase(db)) {
       return res.json({ success: true, message: `Employee ${employee_code} removed successfully.` });
     } else {
@@ -612,9 +612,9 @@ app.get("/api/indents", (req, res) => {
 app.post("/api/indents", (req, res) => {
   try {
     const indent: TravelIndent = req.body;
-    
+
     // Strict validations corresponding to SQL CHECK constraints
-    const validCategories = ["DOMESTIC", "INTERNATIONAL", "INTERNATIONAL_RETURN", "SL", "LOCAL"];
+    const validCategories = ["DOMESTIC", "INTERNATIONAL", "INTERNATIONAL_RETURN", "TRAIN", "BUS", "CAB"];
     if (!indent.travel_type || !validCategories.includes(indent.travel_type)) {
       return res.status(400).json({ error: `Check Constraint Violated: Travel Category '${indent.travel_type}' is invalid. Allowed: ${validCategories.join(", ")}` });
     }
@@ -644,7 +644,7 @@ app.post("/api/indents", (req, res) => {
     }
 
     const db = getDatabase();
-    
+
     // Enforce Foreign Key Constraint
     const employeeExists = db.employees.some(e => e.employee_code === indent.employee_code);
     if (!employeeExists) {
@@ -655,7 +655,7 @@ app.post("/api/indents", (req, res) => {
     if (!indent.id) {
       indent.id = `IND-2026-${Math.floor(1000 + Math.random() * 9000)}`;
     }
-    
+
     // Ensure unique ID
     const duplicateId = db.indents.some(i => i.id === indent.id);
     if (duplicateId) {
@@ -664,7 +664,7 @@ app.post("/api/indents", (req, res) => {
 
     indent.created_at = new Date().toISOString();
     db.indents.unshift(indent);
-    
+
     const writeOk = writeDatabase(db);
     if (!writeOk) {
       return res.status(500).json({ error: "I/O error backing up travel indent." });
@@ -681,7 +681,7 @@ app.put("/api/indents/:id", (req, res) => {
   try {
     const { id } = req.params;
     const updatedIndent: TravelIndent = req.body;
-    
+
     const db = getDatabase();
     const index = db.indents.findIndex(i => i.id === id);
     if (index === -1) {
@@ -689,7 +689,7 @@ app.put("/api/indents/:id", (req, res) => {
     }
 
     // Constraints Validation
-    const validCategories = ["DOMESTIC", "INTERNATIONAL", "INTERNATIONAL_RETURN", "SL", "LOCAL"];
+    const validCategories = ["DOMESTIC", "INTERNATIONAL", "INTERNATIONAL_RETURN", "TRAIN", "BUS", "CAB"];
     if (updatedIndent.travel_type && !validCategories.includes(updatedIndent.travel_type)) {
       return res.status(400).json({ error: `Check Constraint: Invalid Category '${updatedIndent.travel_type}'` });
     }
@@ -749,6 +749,14 @@ function getSimulatedData(fileType: string) {
       invoiceDate: "2026-06-25",
       gstNumber: "07AAACI8451M1ZT",
       gstAmount: 740.00
+    };
+  } else if (fileType === "id_document") {
+    return {
+      name: "Arjun Malhotra",
+      passportNumber: "Z9876543",
+      passportIssueDate: "2020-04-12",
+      passportExpiryDate: "2030-04-11",
+      aadharPanNumber: "987654321012"
     };
   } else {
     return {
@@ -829,7 +837,7 @@ app.put("/api/job-cards/:id", (req, res) => {
     }
 
     const currentCard = db.jobCards[index];
-    
+
     // Add audit log entries safely
     let logs = [...(currentCard.auditLogs || [])];
     if (updates.auditLogs && Array.isArray(updates.auditLogs)) {
@@ -855,16 +863,16 @@ app.put("/api/job-cards/:id", (req, res) => {
 app.post("/api/job-cards/:id/reschedule", (req, res) => {
   try {
     const { id } = req.params;
-    const { 
-      reason, 
-      operatorId, 
-      reschedulingCharges, 
+    const {
+      reason,
+      operatorId,
+      reschedulingCharges,
       fareDifference,
       cancellationCharges,
       cancellationGstInvoiceUrl,
       cancellationGstInvoiceName
     } = req.body;
-    
+
     if (!reason || !reason.trim()) {
       return res.status(400).json({ error: "cancellation Reason is required for rescheduling." });
     }
@@ -885,7 +893,7 @@ app.post("/api/job-cards/:id/reschedule", (req, res) => {
     parentCard.cancellationCharges = cancellationCharges;
     parentCard.cancellationGstInvoiceUrl = cancellationGstInvoiceUrl;
     parentCard.cancellationGstInvoiceName = cancellationGstInvoiceName;
-    
+
     // Create new child ID
     const count = db.jobCards.filter(jc => jc.indentId === parentCard.indentId).length;
     const childId = `${parentCard.indentId}-RS${count}`;
@@ -931,10 +939,10 @@ app.post("/api/job-cards/:id/reschedule", (req, res) => {
     db.jobCards.unshift(newJobCard);
     writeDatabase(db);
 
-    return res.status(201).json({ 
-      success: true, 
-      parentCard, 
-      newCard: newJobCard 
+    return res.status(201).json({
+      success: true,
+      parentCard,
+      newCard: newJobCard
     });
   } catch (error: any) {
     return res.status(500).json({ error: "Server error rescheduling job card: " + error.message });
@@ -1050,50 +1058,133 @@ app.post("/api/job-cards/scan", async (req, res) => {
       return res.status(400).json({ error: "Required scanner body attributes (fileType and fileData in Base64) are missing." });
     }
 
-    if (process.env.GEMINI_API_KEY) {
-      const cleanMimeType = mimeType || "image/png";
-      const cleanedData = fileData.replace(/^data:image\/\w+;base64,/, ""); // strip base64 prefix if passed
-      
-      const prompt = fileType === "ticket" ? 
-        `You are an interactive Travel Voucher scanner. Analyze the attached document image.
-         Extract and return a raw, valid JSON object matching these exact keys:
-         {
-           "pnr": "string containing Ticket/PNR number",
-           "travelerName": "string containing traveler name",
-           "travelDate": "string YYYY-MM-DD",
-           "origin": "string city/airport code",
-           "destination": "string destination representation",
-           "finalAmount": 12500,
-           "currency": "INR"
-         }
-         Make sure finalAmount is a clean float. Return ONLY values as standard JSON without any markdown formatting or prefix labels.`
-         : fileType === "gst_invoice" ?
-         `You are a corporate accountant auditing a Service / Airline GST Invoice.
-          Analyze the attached document image.
+    const cleanMimeType = mimeType || "image/png";
+    const cleanedData = fileData.replace(/^data:.*?;base64,/, ""); // strip prefix if passed
+
+    const prompt = fileType === "ticket" ?
+      `You are an interactive Travel Voucher scanner. Analyze the attached document image.
+       Extract and return a raw, valid JSON object matching these exact keys:
+       {
+         "pnr": "string containing Ticket/PNR number",
+         "travelerName": "string containing traveler name",
+         "travelDate": "string YYYY-MM-DD",
+         "origin": "string city/airport code",
+         "destination": "string destination representation",
+         "finalAmount": 12500,
+         "currency": "INR"
+       }
+       Make sure finalAmount is a clean float. Return ONLY values as standard JSON without any markdown formatting or prefix labels.`
+      : fileType === "gst_invoice" ?
+        `You are a corporate accountant auditing a Service / Airline GST Invoice.
+        Analyze the attached document image.
+        Extract and return a raw, valid JSON object matching these exact keys:
+        {
+          "vendorName": "string Airline or Service provider name (e.g. IndiGo, Air India, AirAsia, Vistara, SpiceJet, etc.)",
+          "invoiceNumber": "string containing GST invoice number",
+          "totalBillAmount": 14800,
+          "currency": "INR",
+          "invoiceDate": "string YYYY-MM-DD",
+          "gstNumber": "string containing GST details of the Service or Airline provider",
+          "gstAmount": 740.00
+        }
+        Make sure totalBillAmount is a clean floating point value. Return ONLY raw valid JSON structures without any markdown formatting.`
+        : fileType === "id_document" ?
+          `You are an AI document scanner. Analyze the attached Passport or national ID card image.
           Extract and return a raw, valid JSON object matching these exact keys:
           {
-            "vendorName": "string Airline or Service provider name (e.g. IndiGo, Air India, AirAsia, Vistara, SpiceJet, etc.)",
-            "invoiceNumber": "string containing GST invoice number",
-            "totalBillAmount": 14800,
-            "currency": "INR",
-            "invoiceDate": "string YYYY-MM-DD",
-            "gstNumber": "string containing GST details of the Service or Airline provider",
-            "gstAmount": 740.00
+            "name": "string containing traveler's full name",
+            "passportNumber": "string containing passport number if it is a passport, otherwise empty string",
+            "passportIssueDate": "string YYYY-MM-DD if it is a passport, otherwise empty string",
+            "passportExpiryDate": "string YYYY-MM-DD if it is a passport, otherwise empty string",
+            "aadharPanNumber": "string containing Aadhaar number (12 digits) or PAN card number (10 alphanumeric characters) or general national ID number if available, otherwise empty string"
           }
-          Make sure totalBillAmount is a clean floating point value. Return ONLY raw valid JSON structures without any markdown formatting.`
-         :
-        `You are a corporate accountant scanning a vendor invoice receipt.
-         Extract and return a raw, valid JSON object matching these exact keys:
-         {
-           "vendorName": "string vendor name",
-           "invoiceNumber": "string bill or invoice number",
-           "totalBillAmount": 13900,
-           "currency": "INR",
-           "invoiceDate": "string YYYY-MM-DD",
-           "gstNumber": "string GST details"
-         }
-         Make sure totalBillAmount is a clean floating point value. Return ONLY raw valid JSON structures.`;
+          Return ONLY raw valid JSON structures without any markdown formatting.`
+          :
+          `You are a corporate accountant scanning a vendor invoice receipt.
+       Extract and return a raw, valid JSON object matching these exact keys:
+       {
+         "vendorName": "string vendor name",
+         "invoiceNumber": "string bill or invoice number",
+         "totalBillAmount": 13900,
+         "currency": "INR",
+         "invoiceDate": "string YYYY-MM-DD",
+         "gstNumber": "string GST details"
+       }
+       Make sure totalBillAmount is a clean floating point value. Return ONLY raw valid JSON structures.`;
 
+    const openRouterKey = (process.env.OPENROUTER_API_KEY || "").trim();
+
+    if (openRouterKey) {
+      try {
+        const dataUrl = `data:${cleanMimeType};base64,${cleanedData}`;
+        const payload = {
+          model: "google/gemini-2.5-flash",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: prompt
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: dataUrl
+                  }
+                }
+              ]
+            }
+          ]
+        };
+
+        const response = await retryWithBackoff(async () => {
+          const resObj = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${openRouterKey}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": "http://localhost:3000",
+              "X-Title": "Hemraj Personal Travel Desk"
+            },
+            body: JSON.stringify(payload)
+          });
+          if (resObj.status === 429) {
+            const err = new Error("Rate limited") as any;
+            err.status = 429;
+            throw err;
+          }
+          return resObj;
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`OpenRouter API failed with status ${response.status}: ${errorText}`);
+        }
+
+        const responseData = await response.json();
+        const rawText = responseData.choices?.[0]?.message?.content || "{}";
+        const cleanedText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+        const scannedData = JSON.parse(cleanedText);
+
+        return res.json({
+          success: true,
+          scannedData,
+          fileName,
+          method: "OpenRouter Gemini Flash Real-Time Parse"
+        });
+      } catch (openRouterError: any) {
+        console.error("OpenRouter Scan parser execution error. Defaulting to local extraction simulator:", openRouterError.message);
+        const scannedData = getSimulatedData(fileType);
+        return res.json({
+          success: true,
+          scannedData,
+          fileName,
+          method: "Heuristic Fallback OCR (Local)",
+          log: openRouterError.message
+        });
+      }
+    } else if (process.env.GEMINI_API_KEY) {
       try {
         const imagePart = {
           inlineData: {
@@ -1132,7 +1223,7 @@ app.post("/api/job-cards/scan", async (req, res) => {
         });
       }
     } else {
-      // Revert to local simulation mode if GEMINI_API_KEY is not configured
+      // Revert to local simulation mode if no API key is configured
       const scannedData = getSimulatedData(fileType);
       return res.json({
         success: true,
