@@ -4,7 +4,7 @@ import EmployeeProfileModal from "./EmployeeProfileModal";
 import { 
   Building2, Briefcase, Database, Users, HelpCircle, 
   MapPin, ShieldAlert, CheckCircle2, RefreshCw,
-  ChevronRight, Compass, ArrowUpRight, Clock, Plus, 
+  ChevronLeft, ChevronRight, Compass, ArrowUpRight, Clock, Plus, 
   Trash2, Edit3, Send, FileText, CheckCircle, Sparkles, 
   AlertTriangle, Upload, Eye, EyeOff, Clipboard, Play, 
   FileCheck, ShieldCheck, ArrowRight, UserCheck, DollarSign,
@@ -20,7 +20,7 @@ interface JobCardManagerProps {
   jobCards: JobCard[];
   onRefresh: () => Promise<void>;
   onSelectView: (view: "dashboard" | "create" | "jobcards" | "passports" | "settings") => void;
-  activeRole: 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'TRAVEL_DESK';
+  activeRole: 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'TRAVEL_DESK' | 'FINANCE';
   senderEmail: string;
   ccRecipients: string;
   activeTab: 'ALL' | 'QUOTATION' | 'APPROVAL' | 'BOOKING' | 'FINANCE' | 'RECONCILIATION' | 'CLOSED' | 'VOIDED';
@@ -48,6 +48,7 @@ export default function JobCardManager({
   const [jobCards, setJobCards] = useState<JobCard[]>(initialJobCards);
   const [selectedCard, setSelectedCard] = useState<JobCard | null>(null);
   const [profileEmployee, setProfileEmployee] = useState<Employee | null>(null);
+  const [isLeftListCollapsed, setIsLeftListCollapsed] = useState(false);
   
   const [activeViewSection, setActiveViewSection] = useState<JobCardStage | 'OVERVIEW' | 'VENDOR_INVOICE' | null>(null);
 
@@ -176,7 +177,7 @@ export default function JobCardManager({
   const [isAirlineQuote, setIsAirlineQuote] = useState(false);
 
   // Dynamic Quote Sub-Costs and AI Extract States
-  const [subCosts, setSubCosts] = useState<{ category: "FLIGHT" | "TRAIN" | "HOTEL" | "CAB" | "OTHER"; description: string; amount: number }[]>([]);
+  const [subCosts, setSubCosts] = useState<QuoteSubCost[]>([]);
   const [singleSubCategory, setSingleSubCategory] = useState<"FLIGHT" | "TRAIN" | "HOTEL" | "CAB" | "OTHER">("FLIGHT");
   const [singleSubDesc, setSingleSubDesc] = useState("");
   const [singleSubAmount, setSingleSubAmount] = useState("");
@@ -845,11 +846,12 @@ export default function JobCardManager({
   // Pre-fill outbound system emails templates based on selected category and passenger info
   useEffect(() => {
     if (!selectedCard) return;
+    const indent = indents.find(i => i.id === selectedCard.indentId);
     const approvedQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
     const vendor = approvedQuote?.vendorName || "Preferred Vendor Partner";
     const traveler = resolvedEmployee?.name || "Corporate Employee";
-    const route = `${selectedCard.nearest_boarding_point || resolvedEmployee?.location_plant || "BOM"} to ${selectedCard.destination || "DEL"}`;
-    const date = selectedCard.travel_date || "date";
+    const route = `${indent?.nearest_boarding_point || resolvedEmployee?.native_city || "BOM"} to ${selectedCard.destination || "DEL"}`;
+    const date = indent?.travel_date || "date";
     const passExpiry = resolvedEmployee?.passport_expiry || "N/A";
     const passNum = resolvedEmployee?.passport_number || "N/A";
 
@@ -866,8 +868,8 @@ export default function JobCardManager({
       subject = `Fulfillment Booking for Tour Package: Ref ID ${selectedCard.id}`;
       body = `Dear Partner at ${vendor},\n\nPlease dispatch travel booking operations for our custom package request:\n\nLead traveler: ${traveler}\nTravel Route Spec: ${route}\nDate range: ${date}\n\nPlease activate full tour guide links as specified in your approved quotation.\n\nRegards,\nHemraj Admin`;
     } else if (emailTemplateType === 'VISA') {
-      subject = `Visa Liaison Request Order - ${traveler} (${resolvedEmployee?.nationality || "Indian"})`;
-      body = `Dear Visa Desk Partner,\n\nKindly activate transit visa file preparation assistance for:\n\nApplicant: ${traveler}\nNationality: ${resolvedEmployee?.nationality || "N/A"}\nPassport: ${passNum}\nPassport expiration date: ${passExpiry}\nRoute Sector: ${route}\n\nPlease guide our traveler regarding processing timelines.\n\nTruly yours,\nHemraj Compliance Support Department`;
+      subject = `Visa Liaison Request Order - ${traveler} (${resolvedEmployee?.visa_country || "Indian"})`;
+      body = `Dear Visa Desk Partner,\n\nKindly activate transit visa file preparation assistance for:\n\nApplicant: ${traveler}\nNationality: ${resolvedEmployee?.visa_country || "N/A"}\nPassport: ${passNum}\nPassport expiration date: ${passExpiry}\nRoute Sector: ${route}\n\nPlease guide our traveler regarding processing timelines.\n\nTruly yours,\nHemraj Compliance Support Department`;
     } else {
       subject = `General Booking Desk Instructions: Indent ID ${selectedCard.id}`;
       body = `Hi Desk,\n\nPlease refer to travel record ${selectedCard.id} for the traveler ${traveler}.\n\nPlease arrange necessary ancillary travel assistance.\n\nThanks,\nHemraj Travel Desk`;
@@ -1646,7 +1648,7 @@ export default function JobCardManager({
 
       <div className={kanbanView ? "space-y-8" : "grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"}>
         
-        <div className={kanbanView ? "space-y-8" : "lg:col-span-3 space-y-6 flex flex-col"}>
+        <div className={kanbanView ? "space-y-8" : isLeftListCollapsed ? "hidden" : "lg:col-span-3 space-y-6 flex flex-col"}>
 
           {/* KANBAN BOARD WRAPPER */}
           {kanbanView && (
@@ -1777,7 +1779,7 @@ export default function JobCardManager({
         </div>
 
         {/* RIGHT COLUMN: ACTIVE DRAWERS/WORKSPACE FOR DETAILED WORKFLOWS */}
-        <div className={kanbanView ? "" : "lg:col-span-9 lg:sticky lg:top-6 lg:self-start"}>
+        <div className={kanbanView ? "" : isLeftListCollapsed ? "lg:col-span-12 text-left" : "lg:col-span-9 lg:sticky lg:top-6 lg:self-start lg:border-l lg:border-slate-200 lg:pl-8 text-left"}>
           
           <AnimatePresence mode="wait">
             {!selectedCard ? (
@@ -1785,7 +1787,7 @@ export default function JobCardManager({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="bg-white border-2 border-slate-900 rounded-3xl p-12 text-center shadow-xs h-[calc(100vh-150px)] overflow-y-auto flex flex-col justify-center items-center"
+                className="bg-slate-50/50 border border-slate-100 rounded-3xl p-12 text-center shadow-2xs h-[calc(100vh-150px)] overflow-y-auto flex flex-col justify-center items-center"
               >
                 <Clipboard className="w-16 h-16 text-slate-300 mb-4" />
                 <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 mb-2">No Card selected</h3>
@@ -1799,11 +1801,21 @@ export default function JobCardManager({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="bg-white border-2 border-slate-900 rounded-3xl h-[calc(100vh-150px)] overflow-y-auto"
+                className="h-[calc(100vh-150px)] overflow-y-auto pr-2 text-left"
               >
                 {/* WORKSPACE HEADER */}
-                <div className="bg-slate-900 px-8 py-7 text-white flex justify-between items-center gap-6">
+                <div className="bg-slate-900 px-8 py-7 text-white flex justify-between items-center gap-6 rounded-t-3xl shadow-sm">
                   <div className="flex items-center gap-5">
+                    {!kanbanView && (
+                      <button
+                        type="button"
+                        onClick={() => setIsLeftListCollapsed(!isLeftListCollapsed)}
+                        className="p-2 bg-slate-800/50 hover:bg-slate-800 rounded-xl text-slate-300 hover:text-white transition duration-150 active:scale-95 cursor-pointer flex items-center justify-center border border-slate-700/50 mr-1"
+                        title={isLeftListCollapsed ? "Expand Cards Sidebar" : "Collapse Cards Sidebar"}
+                      >
+                        {isLeftListCollapsed ? <ChevronRight className="w-4 h-4 text-orange-500" /> : <ChevronLeft className="w-4 h-4" />}
+                      </button>
+                    )}
                     <div className="w-12 h-12 rounded-2xl bg-orange-600 flex items-center justify-center shadow-lg shadow-orange-600/20">
                       <Briefcase className="w-6 h-6 text-white" />
                     </div>
@@ -2045,7 +2057,7 @@ export default function JobCardManager({
                   ];
 
                   return (
-                    <div className="bg-slate-50 p-6 border-b border-slate-200">
+                    <div className="bg-slate-50 p-6 border-x border-b border-slate-205 rounded-b-3xl shadow-2xs">
                       <div className="flex justify-between items-center mb-5">
                         <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest block font-sans">
                           Job Card Workflow Tracker ({selectedCard.isCancelled ? "Terminated" : "Stage " + (currentIdx + 1) + " of 6"})
@@ -2127,7 +2139,7 @@ export default function JobCardManager({
                 })()}
 
                 {/* INTERACTIVE WORKSPACE VIEW SECTIONS CONTROL */}
-                <div className="bg-white border-b border-slate-200 px-8 py-4 flex flex-col sm:flex-row sm:items-center gap-5 justify-between sticky top-0 z-20">
+                <div className="bg-slate-50/85 backdrop-blur-md border border-slate-200/80 px-6 py-3.5 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-5 justify-between my-6 sticky top-0 z-20 shadow-2xs">
                   <div className="flex flex-wrap items-center gap-2">
                     {([
                       { stage: 'OVERVIEW', title: 'Summary' },
@@ -2185,7 +2197,7 @@ export default function JobCardManager({
 
                 {/* CANCEL & RESCHEDULE ACTION RAIL */}
                 {!selectedCard.isCancelled && (
-                  <div className="bg-slate-50 border-b border-slate-200 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
+                  <div className="bg-slate-50 border border-slate-200/80 px-6 py-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-4 my-6 shadow-2xs">
                     <div className="flex items-center gap-2 text-slate-700 text-[10px] uppercase font-black tracking-wider">
                       <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
                       <span>Administration Control Operations:</span>
@@ -2220,7 +2232,83 @@ export default function JobCardManager({
                 )}
 
                 {/* MAIN ACTIVE DRAWERS WORKSPACE */}
-                <div className="p-8 space-y-8">
+                {(() => {
+                  const isWorkspaceStep = ['APPROVAL', 'BOOKING', 'VENDOR_INVOICE', 'FINANCE'].includes(activeViewSection || '');
+                  const localIndent = indents ? indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId) : null;
+                  
+                  return (
+                    <div className="py-6">
+                      <div className={isWorkspaceStep ? "grid grid-cols-1 lg:grid-cols-12 gap-8 items-start" : "space-y-8"}>
+                        {isWorkspaceStep && (
+                          <div className="lg:col-span-4 lg:sticky lg:top-24 space-y-6 text-left">
+                            <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
+                              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Indent Reference</span>
+                                <span className="text-[9px] bg-slate-900 text-white font-mono px-2 py-0.5 rounded-full uppercase tracking-wider">{selectedCard.indentId || selectedCard.id}</span>
+                              </div>
+                              
+                              <div className="space-y-3 text-xs">
+                                <div>
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Traveler</span>
+                                  <span className="font-black text-slate-955 block">{selectedCard.travelerName} ({localIndent?.employee_code})</span>
+                                  {profileEmployee && (
+                                    <span className="block text-[10px] text-slate-500 font-bold mt-0.5">{profileEmployee.designation} &bull; {profileEmployee.department}</span>
+                                  )}
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Route / Sector</span>
+                                    <span className="font-bold text-slate-850 block truncate" title={quoteSector || selectedCard.destination}>{quoteSector || selectedCard.destination}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Travel Date</span>
+                                    <span className="font-bold text-slate-850 block">
+                                      {localIndent?.travel_date ? new Date(localIndent.travel_date).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}) : 'N/A'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 pt-1">
+                                  <div>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Category</span>
+                                    <span className="inline-block bg-slate-200 text-slate-800 text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wider mt-0.5">
+                                      {localIndent?.travel_type || selectedCard.stage}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Priority</span>
+                                    <span className={`inline-block text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wider mt-0.5 ${
+                                      localIndent?.priority === 'CRITICAL' ? 'bg-rose-100 text-rose-700' :
+                                      localIndent?.priority === 'HIGH' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {localIndent?.priority || 'MEDIUM'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {localIndent?.purpose && (
+                                  <div className="pt-1">
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Purpose of Trip</span>
+                                    <span className="text-slate-700 italic block">"{localIndent.purpose}"</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {profileEmployee && profileEmployee.passport_expiry && (
+                              <div className="bg-slate-50 border border-slate-200 rounded-3xl p-4 space-y-2 text-xs text-left">
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Compliance Details</span>
+                                <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                                  <span>Passport Valid Until:</span>
+                                  <span className="font-mono text-slate-900 bg-white border border-slate-200 px-1.5 py-0.5 rounded">{new Date(profileEmployee.passport_expiry).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className={isWorkspaceStep ? "lg:col-span-8 space-y-8 text-left" : "space-y-8"}>
                   {activeViewSection === 'OVERVIEW' && (
                     <div className="space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2834,31 +2922,26 @@ export default function JobCardManager({
                       
                       {/* MASTER COMPARATIVE EVALUATION MATRIX */}
                       {selectedCard.quotes && selectedCard.quotes.length > 0 && (
-                        <div className="bg-white border-2 border-slate-900 rounded-[2rem] overflow-hidden shadow-xl" id="master-bid-comparison-matrix-approval">
-                          <div className="bg-slate-900 text-white p-6 flex justify-between items-center">
-                            <div>
-                              <h4 className="text-[10px] font-black uppercase tracking-widest opacity-60">Evaluation Deck</h4>
-                              <h3 className="text-lg font-black uppercase tracking-tight">Bid Comparison Matrix</h3>
-                            </div>
-                            <span className="text-[10px] font-mono font-black bg-white/10 px-3 py-1 rounded-full uppercase tracking-widest border border-white/20">
-                              Executive Decision Grid
-                            </span>
+                        <div className="space-y-4 text-left" id="master-bid-comparison-matrix-approval">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Evaluation Deck</span>
+                            <h3 className="text-base font-black uppercase tracking-tight text-slate-900 mt-0.5">Travel Comparison Sheet</h3>
                           </div>
 
-                          <div className="overflow-x-auto">
+                          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
                             <table className="w-full text-left border-collapse">
                               <thead>
-                                <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest border-b border-slate-800">
-                                  <th className="px-4 py-5 border-r border-slate-800 text-white">ID</th>
-                                  <th className="px-4 py-5 border-r border-slate-800 text-white">Vendor</th>
-                                  <th className="px-4 py-5 border-r border-slate-800 text-white">Agent</th>
-                                  <th className="px-4 py-5 border-r border-slate-800 text-white">Airline</th>
-                                  <th className="px-4 py-5 border-r border-slate-800 text-white">Sector</th>
-                                  <th className="px-4 py-5 border-r border-slate-800 text-white">Layover</th>
-                                  <th className="px-4 py-5 border-r border-slate-800 text-white">Date</th>
-                                  <th className="px-4 py-5 border-r border-slate-800 text-white">Raw Cost</th>
-                                  <th className="px-4 py-5 border-r border-slate-800 text-white">INR Equivalent</th>
-                                  <th className="px-4 py-5 text-center text-white">Final Selection</th>
+                                <tr className="bg-slate-50 text-slate-700 text-[9px] font-black uppercase tracking-widest border-b border-slate-250">
+                                  <th className="px-4 py-4 border-r border-slate-200">ID</th>
+                                  <th className="px-4 py-4 border-r border-slate-200">Vendor</th>
+                                  <th className="px-4 py-4 border-r border-slate-200">Agent</th>
+                                  <th className="px-4 py-4 border-r border-slate-200">Airline</th>
+                                  <th className="px-4 py-4 border-r border-slate-200">Sector</th>
+                                  <th className="px-4 py-4 border-r border-slate-200">Layover</th>
+                                  <th className="px-4 py-4 border-r border-slate-200">Date</th>
+                                  <th className="px-4 py-4 border-r border-slate-200">Raw Cost</th>
+                                  <th className="px-4 py-4 border-r border-slate-200">INR Equivalent</th>
+                                  <th className="px-4 py-4 text-center">Final Selection</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 font-bold uppercase text-[10px]">
@@ -4030,7 +4113,11 @@ export default function JobCardManager({
                     </div>
                   )}
 
-                </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
               </motion.div>
             )}

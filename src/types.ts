@@ -1,4 +1,4 @@
-export type TravelCategory = 'DOMESTIC' | 'INTERNATIONAL' | 'INTERNATIONAL_RETURN' | 'SL' | 'LOCAL';
+export type TravelCategory = 'DOMESTIC' | 'INTERNATIONAL' | 'INTERNATIONAL_RETURN' | 'TRAIN' | 'BUS' | 'CAB';
 export type PriorityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type VisaType = 'BUSINESS' | 'TOURIST' | 'EMPLOYMENT' | 'OTHER';
 export type SeatPreference = 'WINDOW' | 'AISLE' | 'MIDDLE' | 'OTHER';

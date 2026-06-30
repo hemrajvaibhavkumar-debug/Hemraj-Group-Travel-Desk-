@@ -7,6 +7,8 @@ import JobCardManager from "./components/JobCardManager";
 import PassportValidityDashboard from "./components/PassportValidityDashboard";
 import SettingsPanel from "./components/SettingsPanel";
 import EmployeesDashboard from "./components/EmployeesDashboard";
+import DashboardReports from "./components/DashboardReports";
+import FlightSearchHub from "./components/FlightSearchHub";
 import { 
   Building2, Briefcase, Database, Users, HelpCircle, 
   MapPin, ShieldAlert, CheckCircle2, RefreshCw,
@@ -37,7 +39,7 @@ export default function App() {
   const ccRecipients = rbacSettings?.ccRecipients || "compliance-cc@hemraj-group.com, travel-archive@hemraj-group.com";
 
   // Views / Navigation Tabs
-  const [currentView, setCurrentView] = useState<"dashboard" | "create" | "jobcards" | "passports" | "settings" | "employees">("dashboard");
+  const [currentView, setCurrentView] = useState<"dashboard" | "indents" | "create" | "jobcards" | "passports" | "settings" | "employees" | "flight-search">("dashboard");
   const [activeTab, setActiveTab] = usePersistedState<'ALL' | 'QUOTATION' | 'APPROVAL' | 'BOOKING' | 'FINANCE' | 'RECONCILIATION' | 'CLOSED' | 'VOIDED'>('job-card-active-tab', 'ALL');
   const [kanbanView, setKanbanView] = usePersistedState<boolean>('job-card-list-default-view', false);
 
@@ -449,6 +451,19 @@ export default function App() {
                 <span>New Request</span>
               </button>
 
+              <button
+                onClick={() => { setCurrentView("indents"); setIsMobileMenuOpen(false); }}
+                id="btn-nav-indents"
+                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                  currentView === "indents"
+                    ? "bg-slate-900 text-white shadow-lg font-black"
+                    : "text-slate-900 hover:bg-slate-50 font-black"
+                }`}
+              >
+                {currentView === "indents" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                <span>Indent Console</span>
+              </button>
+
 
               <button
                 onClick={() => { setCurrentView("jobcards"); setIsMobileMenuOpen(false); }}
@@ -461,6 +476,19 @@ export default function App() {
               >
                 {currentView === "jobcards" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
                 <span>Job Card</span>
+              </button>
+
+              <button
+                onClick={() => { setCurrentView("flight-search"); setIsMobileMenuOpen(false); }}
+                id="btn-nav-flight-search"
+                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                  currentView === "flight-search"
+                    ? "bg-slate-900 text-white shadow-lg font-black"
+                    : "text-slate-900 hover:bg-slate-50 font-black"
+                }`}
+              >
+                {currentView === "flight-search" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                <span>Flight Search</span>
               </button>
 
               <div className="px-6 pb-2 text-[9px] font-black text-slate-900 uppercase tracking-widest mt-6">Compliance</div>
@@ -548,14 +576,14 @@ export default function App() {
               )}
               <div>
                 <h2 className="text-lg md:text-xl font-black uppercase tracking-tighter text-slate-900">
-                  {currentView === "dashboard" ? "Main Dashboard" : currentView === "create" ? "New Request" : currentView === "employees" ? "Employees" : currentView === "jobcards" ? "Job Card" : currentView === "passports" ? "Employee Passport Check" : "Settings"} 
+                  {currentView === "dashboard" ? "Main Dashboard" : currentView === "indents" ? "Indent Console" : currentView === "create" ? "New Request" : currentView === "employees" ? "Employees" : currentView === "jobcards" ? "Job Card" : currentView === "passports" ? "Employee Passport Check" : currentView === "flight-search" ? "Flight Search Hub" : "Settings"} 
                   <span className="text-slate-900 ml-2">#TR-2024</span>
                 </h2>
-                <div className="flex items-center gap-1.5 text-slate-900 text-[10px] font-black tracking-wider uppercase mt-0.5">
+                <div className="flex items-center gap-1.5 text-slate-950 text-[10px] font-black tracking-wider uppercase mt-0.5">
                   <span>Travel Desk</span>
                   <ChevronRight className="w-3 h-3 text-slate-900" />
-                  <span className="text-orange-600 font-extrabold">
-                    {currentView === "dashboard" ? "Dashboard Overview" : currentView === "create" ? "Travel Request Form" : currentView === "employees" ? "Employee Directory" : currentView === "jobcards" ? "Job Card" : currentView === "passports" ? "HR Passport Compliance" : "Configuration"}
+                  <span className="text-orange-655 font-extrabold">
+                    {currentView === "dashboard" ? "Dashboard Overview" : currentView === "indents" ? "Indent Logs & Administration" : currentView === "create" ? "Travel Request Form" : currentView === "employees" ? "Employee Directory" : currentView === "jobcards" ? "Job Card" : currentView === "passports" ? "HR Passport Compliance" : currentView === "flight-search" ? "Aviationstack & Webhook Search" : "Configuration"}
                   </span>
                 </div>
               </div>
@@ -631,6 +659,14 @@ export default function App() {
             ) : (
               <div>
                 {currentView === "dashboard" ? (
+                  <DashboardReports
+                    indents={indents}
+                    jobCards={jobCards}
+                    employees={employees}
+                    vendors={vendors}
+                    onSelectView={setCurrentView}
+                  />
+                ) : currentView === "indents" ? (
                   <IndentConsole
                     indents={indents}
                     employees={employees}
@@ -681,6 +717,8 @@ export default function App() {
                     onUpdateEmployee={handleUpdateEmployee}
                     onRefresh={fetchData}
                   />
+                ) : currentView === "flight-search" ? (
+                  <FlightSearchHub />
                 ) : (
                   <SettingsPanel
                     onRefreshAllData={fetchData}

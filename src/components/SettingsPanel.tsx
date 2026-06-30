@@ -29,7 +29,7 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState("");
   const [emailInput, setEmailInput] = useState("");
-  const [roleInput, setRoleInput] = useState<'TRAVEL_DESK' | 'TRAVEL_APPROVER' | 'VP_COMMERCIAL'>('TRAVEL_DESK');
+  const [roleInput, setRoleInput] = useState<'TRAVEL_DESK' | 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'FINANCE'>('TRAVEL_DESK');
   const [isFormOpen, setIsFormOpen] = useState(false);
   
   // Vendor Table states
@@ -573,6 +573,7 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
                       <option value="TRAVEL_DESK">Travel Desk Operator (L0)</option>
                       <option value="TRAVEL_APPROVER">Travel Approver (L1)</option>
                       <option value="VP_COMMERCIAL">VP Commercial (L2)</option>
+                      <option value="FINANCE">Finance Auditor</option>
                     </select>
                   </div>
                 </div>

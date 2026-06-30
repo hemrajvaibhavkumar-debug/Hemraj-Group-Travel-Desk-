@@ -22,9 +22,13 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
   const [scanningId, setScanningId] = useState(false);
   const [idScanError, setIdScanError] = useState("");
   const [idScanSuccess, setIdScanSuccess] = useState("");
+  const [scanProgressStep, setScanProgressStep] = useState("");
+  const [dragOverScanZone, setDragOverScanZone] = useState(false);
+  const [showEmployeeSearch, setShowEmployeeSearch] = useState(false);
 
   const handleIdScan = async (file: File) => {
     setScanningId(true);
+    setScanProgressStep("Reading file data...");
     setIdScanError("");
     setIdScanSuccess("");
 
@@ -33,6 +37,7 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
       reader.onload = async () => {
         try {
           const base64Data = reader.result as string;
+          setScanProgressStep("Invoking AI OCR engine...");
           const res = await fetch("/api/job-cards/scan", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -49,6 +54,7 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
             throw new Error(result.error || "ID scanning failed.");
           }
 
+          setScanProgressStep("Populating employee record...");
           const data = result.scannedData;
           
           setTravelerForm(prev => {
@@ -66,21 +72,30 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
           setIdScanError(err.message || "Failed to scan the ID.");
         } finally {
           setScanningId(false);
+          setScanProgressStep("");
         }
       };
       reader.readAsDataURL(file);
     } catch (err: any) {
       setIdScanError("Failed to read file.");
       setScanningId(false);
+      setScanProgressStep("");
     }
   };
 
   const handleIdDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    setDragOverScanZone(true);
+  };
+
+  const handleIdDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOverScanZone(false);
   };
 
   const handleIdDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    setDragOverScanZone(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleIdScan(e.dataTransfer.files[0]);
     }
@@ -209,6 +224,56 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
         return copy;
       });
     }
+  };
+
+  const selectEmployeeProfile = (emp: Employee) => {
+    setTravelerForm({
+      employeeId: emp.employee_code,
+      aadharPanNumber: emp.aadhar_pan_number || "",
+      name: emp.name,
+      email: emp.email,
+      phone: emp.phone,
+      designation: emp.designation,
+      department: emp.department || "Purchase",
+      defaultTravelApprover: emp.default_travel_approver || "Rohit ji",
+      approverDesignation: emp.approver_designation || "Chief Operating Officer",
+      costCentre: emp.cost_centre || "",
+      defaultBillingCurrency: (emp.default_billing_currency as BillingCurrency) || "INR",
+      
+      // Domestic
+      baseCity: emp.native_city || "",
+      nearestAirport: emp.nearest_airport || "",
+      nearestRailwayStation: emp.nearest_railway_station || "",
+      defaultModeOfTransport: emp.default_mode_of_transport || "Flight",
+      extraBaggageRequired: emp.extra_baggage_required || false,
+      photograph: emp.photograph_url || "",
+      supportingDocuments: emp.supporting_documents_url || "",
+
+      // Train Specifics
+      trainPreferredClass: emp.train_preferred_class || "3AC",
+      trainBerthPreference: emp.train_berth_preference || "No Preference",
+      trainMealPreference: emp.train_meal_preference || "No Meal",
+      trainPreferredNumber: emp.train_preferred_number || "",
+
+      // International
+      presentLocationAbroad: emp.present_location_abroad || "",
+      assignedPlantSite: emp.assigned_plant_site || "Sunagrow",
+      nearestAirportIndia: emp.nearest_airport_india || "",
+      passportNumber: emp.passport_number || "",
+      passportIssueDate: emp.passport_issue_date || "",
+      passportExpiryDate: emp.passport_expiry || "",
+      passportFrontPage: emp.passport_front_page_url || "",
+      passportBackPage: emp.passport_back_page_url || "",
+      offerLetter: emp.offer_letter_url || "",
+      polioVaccineStatus: emp.polio_vaccine_status || "Vaccinated",
+      polioCertificateExpiry: emp.polio_certificate_expiry || "",
+      yfvStatus: emp.yfv_status || "Vaccinated",
+      yfvCertificateExpiry: emp.yfv_certificate_expiry || "",
+      visaNumber: emp.visa_number || "",
+      visaExpiryDate: emp.visa_expiry_date || "",
+      visaCountry: emp.visa_country || ""
+    });
+    setShowEmployeeSearch(false);
   };
 
   // Drag and Drop simulated upload handler
@@ -517,9 +582,9 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
   };
 
   return (
-    <div id="indent-form-panel" className="bg-white rounded-3xl border-2 border-slate-900 overflow-hidden max-w-4xl mx-auto shadow-xl">
+    <div id="indent-form-panel" className="max-w-4xl mx-auto text-left">
       {/* Form Header */}
-      <div className="bg-slate-950 px-8 py-6 text-white flex justify-between items-center border-b border-slate-900">
+      <div className="bg-slate-950 px-8 py-6 text-white flex justify-between items-center rounded-3xl shadow-sm">
         <div>
           <h2 id="form-heading" className="text-2xl font-black uppercase tracking-tighter">New Travel Request</h2>
           <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mt-1">Hemraj Group Personal Travel Desk</p>
@@ -527,13 +592,13 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
         <button 
           onClick={onCancel}
           id="btn-close-form"
-          className="text-white hover:text-orange-500 hover:bg-slate-900 p-2.5 rounded-full border border-slate-850 transition"
+          className="text-white hover:text-orange-500 hover:bg-slate-900 p-2.5 rounded-full border border-slate-800 transition animate-hover"
         >
           <X className="w-5 h-5" />
         </button>
       </div>
 
-      <form onSubmit={handleFormSubmission} className="p-8 space-y-8 max-h-[80vh] overflow-y-auto">
+      <form onSubmit={handleFormSubmission} className="py-6 space-y-8">
         
         {/* Dynamic Alerts if Validation fails */}
         {Object.keys(formErrors).length > 0 && (
@@ -572,11 +637,12 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
                 onChange={handleTravelFormChange}
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/25 focus:border-teal-600 transition font-bold"
               >
-                <option value="DOMESTIC">Domestic</option>
-                <option value="INTERNATIONAL">International</option>
-                <option value="INTERNATIONAL_RETURN">International Return</option>
-                <option value="SL">Special / Sick Leave</option>
-                <option value="LOCAL">Local Run</option>
+                <option value="DOMESTIC">Domestic Flight</option>
+                <option value="INTERNATIONAL">International Flight</option>
+                <option value="INTERNATIONAL_RETURN">International Return Flight</option>
+                <option value="TRAIN">Train</option>
+                <option value="BUS">Bus</option>
+                <option value="CAB">Cab</option>
               </select>
             </div>
 
@@ -697,13 +763,15 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
                 {/* ID OCR Scanner Upload Zone */}
                 <div 
                   onDragOver={handleIdDragOver}
+                  onDragLeave={handleIdDragLeave}
                   onDrop={handleIdDrop}
-                  className="bg-slate-50 border-2 border-dashed border-teal-300 hover:border-teal-500 rounded-2xl p-6 text-center cursor-pointer transition-all relative"
+                  className={`bg-slate-50 border-2 border-dashed ${dragOverScanZone ? "border-teal-600 bg-teal-50/55 scale-[1.01]" : "border-teal-300 hover:border-teal-500"} rounded-2xl p-6 text-center cursor-pointer transition-all relative`}
                 >
                   {scanningId && (
-                    <div className="absolute inset-0 bg-white/90 rounded-2xl flex flex-col items-center justify-center z-10">
+                    <div className="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center z-10">
                       <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-2" />
-                      <span className="text-xs font-bold text-teal-800">Scanning ID document, please wait...</span>
+                      <span className="text-xs font-black text-teal-900 uppercase tracking-wider">{scanProgressStep}</span>
+                      <span className="text-[9px] text-slate-400 block mt-1 uppercase font-black tracking-widest">Hemraj Group Document Parsing</span>
                     </div>
                   )}
                   <input
@@ -771,9 +839,10 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
                     )}
                   </div>
 
-                  <div>
-                    <label htmlFor="input-traveler-name" className="block text-xs font-bold text-slate-600 uppercase mb-1 font-sans tracking-wider">
-                      Full Name *
+                  <div className="relative">
+                    <label htmlFor="input-traveler-name" className="block text-xs font-bold text-slate-600 uppercase mb-1 font-sans tracking-wider flex justify-between items-center">
+                      <span>Full Name *</span>
+                      <span className="text-[9px] text-slate-400 normal-case">(Type to search master database)</span>
                     </label>
                     <input
                       id="input-traveler-name"
@@ -781,11 +850,46 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
                       name="name"
                       placeholder="e.g. Ramesh Hemraj"
                       value={travelerForm.name}
-                      onChange={handleTravelerFormChange}
-                      className={`w-full bg-slate-50 border ${formErrors.traveler_name ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                      onFocus={() => setShowEmployeeSearch(true)}
+                      onBlur={() => setTimeout(() => setShowEmployeeSearch(false), 200)}
+                      onChange={(e) => {
+                        handleTravelerFormChange(e);
+                        setShowEmployeeSearch(true);
+                      }}
+                      className={`w-full bg-slate-50 border ${formErrors.traveler_name ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm font-bold`}
                     />
                     {formErrors.traveler_name && (
                       <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_name}</span>
+                    )}
+
+                    {/* Autocomplete Dropdown overlay */}
+                    {showEmployeeSearch && travelerForm.name.trim().length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-56 overflow-y-auto divide-y divide-slate-100">
+                        {employees.filter(emp => 
+                          emp.name.toLowerCase().includes(travelerForm.name.toLowerCase()) || 
+                          emp.employee_code.toLowerCase().includes(travelerForm.name.toLowerCase())
+                        ).length === 0 ? (
+                          <div className="p-3 text-[11px] text-slate-500 italic">No matching saved profile found. Continue typing to register brand new.</div>
+                        ) : (
+                          employees.filter(emp => 
+                            emp.name.toLowerCase().includes(travelerForm.name.toLowerCase()) || 
+                            emp.employee_code.toLowerCase().includes(travelerForm.name.toLowerCase())
+                          ).map(emp => (
+                            <button
+                              key={emp.employee_code}
+                              type="button"
+                              onClick={() => selectEmployeeProfile(emp)}
+                              className="w-full text-left p-3 hover:bg-slate-50/80 flex justify-between items-center transition-colors font-bold text-xs"
+                            >
+                              <div>
+                                <span className="text-slate-900 block font-black">{emp.name}</span>
+                                <span className="text-[10px] text-slate-500 block font-medium">{emp.designation} &bull; {emp.department}</span>
+                              </div>
+                              <span className="text-[9px] bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full font-mono uppercase tracking-wider">{emp.employee_code}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
                     )}
                   </div>
 

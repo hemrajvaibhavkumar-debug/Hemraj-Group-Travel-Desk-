@@ -1,0 +1,269 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum TravelCategory {
+  DOMESTIC
+  INTERNATIONAL
+  INTERNATIONAL_RETURN
+  TRAIN
+  BUS
+  CAB
+}
+
+enum PriorityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum JobCardStage {
+  QUOTATION
+  APPROVAL
+  BOOKING
+  VENDOR_INVOICE
+  FINANCE
+  RECONCILIATION
+  CLOSED
+}
+
+enum RbacRole {
+  TRAVEL_DESK
+  TRAVEL_APPROVER
+  VP_COMMERCIAL
+  FINANCE
+}
+
+model Employee {
+  employee_code             String         @id
+  aadhar_pan_number         String?        @unique
+  name                      String
+  email                     String         @unique
+  phone                     String
+  designation               String
+  department                String
+  default_travel_approver   String
+  approver_designation      String
+  cost_centre               String
+  default_billing_currency  String
+  
+  // Domestic fields
+  native_city               String?
+  nearest_airport           String?
+  nearest_railway_station   String?
+  default_mode_of_transport String?
+  extra_baggage_required    Boolean?       @default(false)
+  photograph_url            String?
+  supporting_documents_url  String?
+
+  // International fields
+  present_location_abroad   String?
+  assigned_plant_site       String?
+  nearest_airport_india     String?
+  passport_number           String?
+  passport_issue_date       String?
+  passport_expiry           String?
+  passport_front_page_url   String?
+  passport_back_page_url    String?
+  offer_letter_url          String?
+  polio_vaccine_status      String?
+  polio_certificate_expiry  String?
+  yfv_status                String?
+  yfv_certificate_expiry    String?
+  visa_number               String?
+  visa_expiry_date          String?
+  visa_country              String?
+
+  // Train specific fields
+  train_preferred_class     String?
+  train_berth_preference    String?
+  train_meal_preference     String?
+  train_preferred_number    String?
+
+  // Passport history
+  passport_history          Json?          // Array of previous passport records
+
+  // Relations
+  indents                   TravelIndent[]
+}
+
+model TravelIndent {
+  id                     String         @id
+  travel_type            TravelCategory
+  gst_applicable         Boolean
+  priority               PriorityLevel
+  travel_date            String
+  wp_number              String?
+  nearest_boarding_point String
+  luggage                String?
+  visa_type              String?
+  visa_type_other        String?
+  seat_preference        String?
+  seat_preference_other  String?
+  meal_preference        String?
+  meal_preference_other  String?
+  source_location        String
+  destination            String
+  purpose                String
+  plant                  String?
+  employee_code          String
+  created_at             DateTime       @default(now())
+  voided                 Boolean        @default(false)
+  void_reason            String?
+  travel_approver        String?
+  approver_title         String?
+  indent_raiser          String?
+
+  // Relations
+  employee               Employee       @relation(fields: [employee_code], references: [employee_code], onDelete: Cascade)
+  jobCard                JobCard?
+}
+
+model JobCard {
+  id                          String         @id
+  indentId                    String         @unique
+  travelerName                String
+  destination                 String
+  department                  String
+  created_at                  DateTime       @default(now())
+  stage                       JobCardStage
+  rfqVendors                  Json           // Array of string vendor names
+  winningQuoteId              String?
+  
+  // Approval
+  approvalStatus              String         // PENDING, APPROVED, REJECTED, MORE_QUOTES
+  approvalNotes               String?
+  approverName                String?
+  approvedAt                  String?
+  
+  // Booking
+  bookingPNR                  String?
+  bookingVendor               String?
+  finalBookingAmount          Float?
+  bookingCurrency             String?
+  ticketFileUrl               String?
+  ticketFileName              String?
+  ticketVendorInvoiceUrl      String?
+  ticketVendorInvoiceName     String?
+  bookingRecordedAt           String?
+  
+  // Vendor Invoice / Reconciliation
+  invoiceVendorAmount         Float?
+  invoiceCurrency             String?
+  invoiceNumber               String?
+  gstDetailsCorrect           Boolean        @default(false)
+  physicalInvoiceHandedOver   Boolean        @default(false)
+  varianceWarning             String?
+  airlineGstInvoiceUrl        String?
+  airlineGstInvoiceName       String?
+  quoted_total                Float?
+  actual_total                Float?
+  variance_percentage         Float?
+  vendor_name                 String?
+  attachments_url             String?
+  airlineGstNumber            String?
+  airlineGstAmount            Float?
+  airlineGstVendorName        String?
+  reconciliationRecordedAt    String?
+  
+  // Finance
+  financeCleared              Boolean        @default(false)
+  financeVarianceReason       String?
+  paymentStatus               String?        // PENDING, READY, PAID
+  paymentDate                 String?
+  paymentTransactionRef       String?
+  paymentMode                 String?
+  paymentCurrency             String?
+  paymentAmountINR            Float?
+  paymentRecordedAt           String?
+  
+  // History / Status
+  voided                      Boolean        @default(false)
+  void_reason                 String?
+  travelApprovalStatus        String?        // PENDING, APPROVED, REJECTED
+  travelApprovedBy            String?
+  travelApprovedAt            String?
+  travelApprovalNotes         String?
+  commercialApprovalStatus    String?        // PENDING, APPROVED, REJECTED
+  commercialApprovedBy        String?
+  commercialApprovedAt        String?
+  commercialApprovalNotes     String?
+  
+  // Cancellation & Rescheduling
+  isCancelled                 Boolean        @default(false)
+  cancellationReason          String?
+  cancelledAt                 String?
+  cancellationCharges         Float?
+  cancellationGstInvoiceUrl   String?
+  cancellationGstInvoiceName  String?
+  reschedulingCharges         Float?
+  fareDifference              Float?
+  reschedulingReason          String?
+  parentJobCardId             String?
+  rescheduledToCardId         String?
+
+  // Relations
+  indent                      TravelIndent   @relation(fields: [indentId], references: [id], onDelete: Cascade)
+  quotes                      JobCardQuote[]
+  auditLogs                   AuditLog[]
+}
+
+model JobCardQuote {
+  id             String    @id
+  jobCardId      String
+  vendorName     String
+  amount         Float
+  currency       String
+  quoteFileUrl   String?
+  quoteFileName  String?
+  isWinning      Boolean   @default(false)
+  created_at     String
+  subCosts       Json?     // Array of QuoteSubCost objects
+  airline        String?
+  sector         String?
+  layover        String?
+  travelDate     String?
+  agentName      String?
+
+  // Relations
+  jobCard        JobCard   @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  jobCardId  String
+  timestamp  String
+  userId     String
+  action     String
+  notes      String?
+
+  // Relations
+  jobCard    JobCard  @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+}
+
+model RbacUser {
+  id    String   @id
+  name  String
+  email String   @unique
+  role  RbacRole
+}
+
+model RbacSettings {
+  id                   Int    @id @default(1)
+  senderEmail          String
+  ccRecipients         String
+  activeSimulatedEmail String
+}
+
+model Vendor {
+  id         String   @id
+  name       String
+  emails     Json     // Array of string emails
+  phones     Json     // Array of string phones
+  categories Json     // Array of category strings (FLIGHT, TRAIN, etc.)
+}

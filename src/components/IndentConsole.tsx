@@ -211,59 +211,6 @@ export default function IndentConsole({
   return (
     <div id="indent-console-panel" className="space-y-8">
       
-      {/* Dynamic Statistics Block */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Total Indents */}
-        <div id="stat-card-total" className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4 hover:scale-[1.01] transition-transform">
-          <div className="w-12 h-12 rounded-2xl bg-orange-500 text-white flex items-center justify-center shrink-0">
-            <Briefcase className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] font-black text-slate-950 block uppercase tracking-widest leading-none mb-1">Active Indents</span>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-black font-sans tracking-tighter text-slate-900">{stats.activeCount}</span>
-              <span className="text-[10px] font-black text-orange-600 bg-orange-50 border border-orange-100 rounded-lg px-2 py-0.5" title="Requests flagged VOID (Cancel Return Ticket)">
-                {stats.voidedCount} VOID (Cancel Return)
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* International Flights */}
-        <div id="stat-card-intl" className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4 hover:scale-[1.01] transition-transform">
-          <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center shrink-0">
-            <Compass className="w-5 h-5 text-orange-500" />
-          </div>
-          <div>
-            <span className="text-[10px] font-black text-slate-950 block uppercase tracking-widest leading-none mb-1">International</span>
-            <span className="text-3xl font-black font-sans tracking-tighter text-slate-900">{stats.internationalCount}</span>
-          </div>
-        </div>
-
-        {/* Critical Priority */}
-        <div id="stat-card-critical" className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4 hover:scale-[1.01] transition-transform">
-          <div className="w-12 h-12 rounded-2xl bg-orange-600 text-white flex items-center justify-center shrink-0">
-            <AlertCircle className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] font-black text-slate-950 block uppercase tracking-widest leading-none mb-1">Critical Priority</span>
-            <span className="text-3xl font-black font-sans tracking-tighter text-slate-900">{stats.criticalCount}</span>
-          </div>
-        </div>
-
-        {/* Total Approved Amount */}
-        <div id="stat-card-approved-amount" className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4 hover:scale-[1.01] transition-transform">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shrink-0">
-            <Banknote className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] font-black text-slate-950 block uppercase tracking-widest leading-none mb-1">Total Approved Amount</span>
-            <span className="text-3xl font-black font-sans tracking-tighter text-slate-900">₹{stats.totalApprovedAmount.toLocaleString('en-IN')}</span>
-          </div>
-        </div>
-
-      </div>
-
       {/* Main Console Navigation Tabs */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="flex border-b border-slate-200 bg-slate-50 px-6 pt-3.5">
@@ -455,20 +402,22 @@ export default function IndentConsole({
                               <span className="text-[10px] text-slate-950 block font-black uppercase tracking-wider">{indent.employeeDesignation} ({indent.employee_code})</span>
                             </td>
                             <td className="px-6 py-4.5">
-                              <span className={`inline-block px-2.5 py-1 rounded font-black text-[9px] uppercase tracking-wider ${
-                                indent.travel_type === "DOMESTIC" ? "bg-slate-100 text-slate-900 border border-slate-200" :
-                                indent.travel_type.startsWith("INTERNATIONAL") ? "bg-slate-900 text-white" :
-                                "bg-orange-100 text-orange-900 border border-orange-200"
+                              <span className={`inline-block px-2.5 py-1 rounded-lg font-black text-[9px] uppercase tracking-wider border-l-4 shadow-2xs ${
+                                indent.travel_type === "DOMESTIC" ? "bg-slate-50 text-slate-850 border-slate-300" :
+                                indent.travel_type.startsWith("INTERNATIONAL") ? "bg-slate-900 text-white border-slate-700" :
+                                indent.travel_type === "TRAIN" ? "bg-teal-50 text-teal-850 border-teal-500" :
+                                indent.travel_type === "BUS" ? "bg-indigo-50 text-indigo-850 border-indigo-500" :
+                                "bg-orange-50 text-orange-950 border-orange-500"
                               }`}>
                                 {indent.travel_type.replace("_", " ")}
                               </span>
                             </td>
                             <td className="px-6 py-4.5">
-                              <span className={`inline-block px-2.5 py-1 rounded font-black text-[9px] uppercase tracking-wider ${
-                                indent.priority === "LOW" ? "bg-slate-100 text-slate-600" :
-                                indent.priority === "MEDIUM" ? "bg-slate-200 text-slate-800" :
-                                indent.priority === "HIGH" ? "bg-orange-100 text-orange-950 border border-orange-200" :
-                                "bg-orange-600 text-white"
+                              <span className={`inline-block px-2.5 py-1 rounded-lg font-black text-[9px] uppercase tracking-wider border-l-4 shadow-2xs ${
+                                indent.priority === "LOW" ? "bg-slate-50 text-slate-500 border-slate-300" :
+                                indent.priority === "MEDIUM" ? "bg-blue-50 text-blue-850 border-blue-500" :
+                                indent.priority === "HIGH" ? "bg-orange-50 text-orange-950 border-orange-500" :
+                                "bg-rose-50 text-rose-800 border-rose-600 animate-pulse"
                               }`}>
                                 {indent.priority}
                               </span>
@@ -506,15 +455,15 @@ export default function IndentConsole({
                               })()}
                             </td>
                             <td className="px-6 py-4.5 text-right">
-                              <div className="flex items-center justify-end gap-2">
+                              <div className="flex items-center justify-end gap-2.5">
                                 {onApproveAndCreateJobCard && (
                                   <button
                                     onClick={() => onApproveAndCreateJobCard(indent)}
                                     title="Approve & Send to Job Card Tracking Desk"
-                                    className="px-2.5 py-1.5 bg-slate-950 border border-slate-950 text-white hover:bg-orange-600 duration-150 rounded-xl transition flex items-center gap-1 font-black uppercase text-[8px] tracking-wider"
+                                    className="px-3 py-1.5 bg-slate-900 border border-slate-900 text-white hover:bg-teal-650 hover:border-teal-650 duration-150 rounded-xl transition flex items-center gap-1.5 font-black uppercase text-[8px] tracking-widest hover:scale-[1.03] active:scale-[0.97]"
                                   >
-                                    <Check className="w-3.5 h-3.5 text-orange-500" />
-                                    <span>APPROVE & SEND TO JC</span>
+                                    <Check className="w-3.5 h-3.5 text-teal-400" />
+                                    <span>Approve & JC</span>
                                   </button>
                                 )}
 
@@ -523,7 +472,7 @@ export default function IndentConsole({
                                     onClick={() => handleRestoreIndent(indent)}
                                     id={`restore-indent-${indent.id}`}
                                     title="Remove VOID instruction flag"
-                                    className="px-2.5 py-1.5 bg-slate-100 border border-slate-300 text-slate-700 hover:bg-slate-200 duration-150 rounded-xl transition flex items-center font-black uppercase text-[8px] tracking-wider whitespace-nowrap"
+                                    className="px-3 py-1.5 bg-slate-100 border border-slate-350 text-slate-700 hover:bg-slate-200 duration-150 rounded-xl transition flex items-center font-black uppercase text-[8px] tracking-widest hover:scale-[1.03] active:scale-[0.97]"
                                   >
                                     <span>Remove VOID</span>
                                   </button>
@@ -532,7 +481,7 @@ export default function IndentConsole({
                                     onClick={() => setVoidingIndent(indent)}
                                     id={`void-indent-${indent.id}`}
                                     title="Mark as VOID (Cancel return ticket after booking)"
-                                    className="px-2.5 py-1.5 bg-orange-50 border border-orange-350 text-orange-850 hover:bg-orange-100 duration-150 rounded-xl transition flex items-center font-black uppercase text-[8px] tracking-wider whitespace-nowrap"
+                                    className="px-3 py-1.5 bg-orange-50 border border-orange-350 text-orange-850 hover:bg-orange-100 duration-150 rounded-xl transition flex items-center font-black uppercase text-[8px] tracking-widest hover:scale-[1.03] active:scale-[0.97]"
                                   >
                                     <span>Mark VOID</span>
                                   </button>
@@ -541,7 +490,7 @@ export default function IndentConsole({
                                 <button
                                   onClick={() => handleEditClick(indent)}
                                   title="Edit Indent Form"
-                                  className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
+                                  className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-150 rounded-xl transition duration-150 hover:scale-[1.05]"
                                 >
                                   <Edit className="w-3.5 h-3.5" />
                                 </button>
@@ -552,7 +501,7 @@ export default function IndentConsole({
                                     }
                                   }}
                                   title="Delete Indent"
-                                  className="p-1.5 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition"
+                                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition duration-150 hover:scale-[1.05]"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
