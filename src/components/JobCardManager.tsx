@@ -719,6 +719,7 @@ export default function JobCardManager({
         body: JSON.stringify({
           quotes: updatedQuotes,
           winningQuoteId: quote.id,
+          rfqCompletedAt: new Date().toISOString(),
           auditLogs: [newAudit]
         })
       });
@@ -835,6 +836,7 @@ export default function JobCardManager({
           commercialApprovalStatus: decision,
           commercialApprovedBy: reviewer,
           commercialApprovedAt: new Date().toISOString(),
+          l2ApprovedAt: decision === 'APPROVED' ? new Date().toISOString() : undefined,
           commercialApprovalNotes: approvalNotes || undefined,
           stage: nextStage,
           approvalStatus: decision === 'APPROVED' ? 'APPROVED' : 'REJECTED',
@@ -967,8 +969,16 @@ export default function JobCardManager({
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        await fetch(`/api/job-cards/${selectedCard.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workOrderSentAt: new Date().toISOString()
+          })
+        });
         setWorkOrderSentMessage(data.message || "Work Order successfully sent!");
         triggerSuccess(data.message || "Work Order sent successfully!");
+        await onRefresh();
       } else {
         throw new Error(data.error || "Failed to dispatch work order.");
       }
@@ -1195,8 +1205,77 @@ export default function JobCardManager({
               </tbody>
             </table>
 
+            <h5 style="margin-top: 24px; margin-bottom: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569;">Travel Preferences & Specifics</h5>
+            <table class="details-table">
+              <tbody>
+                <tr>
+                  <th>Transport Category</th>
+                  <td style="text-transform: uppercase;">${localIndent?.travel_type || "FLIGHT"}</td>
+                </tr>
+                ${(() => {
+                  if (!localIndent) return "";
+                  const type = localIndent.travel_type;
+                  const seat = localIndent.seat_preference === "OTHER" ? (localIndent.seat_preference_other || "Other") : (localIndent.seat_preference || "N/A");
+                  const meal = localIndent.meal_preference === "OTHER" ? (localIndent.meal_preference_other || "Other") : (localIndent.meal_preference || "N/A");
+                  
+                  let rows = "";
+                  
+                  if (type === "DOMESTIC" || type === "INTERNATIONAL") {
+                    rows += `
+                      <tr>
+                        <th>Seat Preference</th>
+                        <td>${seat}</td>
+                      </tr>
+                      <tr>
+                        <th>Meal Preference</th>
+                        <td>${meal}</td>
+                      </tr>
+                      <tr>
+                        <th>Luggage Allowance</th>
+                        <td>${localIndent.luggage || "Standard / None"}</td>
+                      </tr>
+                    `;
+                  } else if (type === "TRAIN") {
+                    rows += `
+                      <tr>
+                        <th>Preferred Class</th>
+                        <td>${resolvedEmployee?.train_preferred_class || "N/A"}</td>
+                      </tr>
+                      <tr>
+                        <th>Berth Preference</th>
+                        <td>${resolvedEmployee?.train_berth_preference || "N/A"}</td>
+                      </tr>
+                      <tr>
+                        <th>Meal Preference</th>
+                        <td>${resolvedEmployee?.train_meal_preference || "N/A"}</td>
+                      </tr>
+                    `;
+                  } else if (type === "BUS") {
+                    rows += `
+                      <tr>
+                        <th>Seat Preference</th>
+                        <td>${seat}</td>
+                      </tr>
+                      <tr>
+                        <th>Luggage</th>
+                        <td>${localIndent.luggage || "N/A"}</td>
+                      </tr>
+                    `;
+                  } else if (type === "CAB") {
+                    rows += `
+                      <tr>
+                        <th>Luggage</th>
+                        <td>${localIndent.luggage || "N/A"}</td>
+                      </tr>
+                    `;
+                  }
+                  return rows;
+                })()}
+              </tbody>
+            </table>
+
             <div class="directive-box">
-              "You are authorized to proceed with the ticket and voucher bookings for the above traveler. Ensure all booking files, PNR vouchers, and tax invoices are uploaded directly to the active job card for subsequent financial reconciliation."
+              NOTE: Booking execution and ticket issuance should only be processed when the official Work Order has been dispatched from official corporate email domains.
             </div>
 
             <div class="footer">
@@ -1397,11 +1476,15 @@ export default function JobCardManager({
     }
 
     try {
+      const rawAmt = parseFloat(bookingAmount) || 0;
+      const finalBookingAmtInr = bookingCurrency === "INR" ? rawAmt : convertToINR(rawAmt, bookingCurrency);
+
       const newAudit: AuditLogEntry = {
         timestamp: new Date().toISOString(),
         userId: operatorId,
         action: "Ticket Booked",
-        notes: `Recorded ticket booking. PNR: ${pnr}, Cost: ${bookingAmount} ${bookingCurrency}.`
+        notes: `Recorded ticket booking. PNR: ${pnr}, Cost: ${bookingAmount} ${bookingCurrency}` + 
+               (bookingCurrency !== "INR" ? ` (Converted to ${finalBookingAmtInr.toFixed(2)} INR).` : ".")
       };
 
       const res = await fetch(`/api/job-cards/${selectedCard.id}`, {
@@ -1409,10 +1492,11 @@ export default function JobCardManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingPNR: pnr,
-          finalBookingAmount: parseFloat(bookingAmount),
-          bookingCurrency: bookingCurrency,
+          finalBookingAmount: finalBookingAmtInr,
+          bookingCurrency: "INR",
           ticketFileUrl: ticketFileBase64 || undefined,
           ticketFileName: ticketFileName || undefined,
+          bookingRecordedAt: new Date().toISOString(),
           auditLogs: [newAudit]
         })
       });
@@ -1436,22 +1520,14 @@ export default function JobCardManager({
     }
 
     try {
-      const convertToInrValue = (amt: number, curr: string) => {
-        const val = amt;
-        const c = curr.toUpperCase();
-        if (c === "USD" || c === "$") return val * 83;
-        if (c === "AUD") return val * 55;
-        if (c === "NGN") return val * 0.06;
-        if (c === "VND") return val * 0.0035;
-        return val;
-      };
-
       const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
-      const approvedAmount = winQuote ? winQuote.amount : 0;
-      const finalAmt = parseFloat(invoiceVendorAmount) || 0;
+      const approvedAmountInr = winQuote ? convertToINR(winQuote.amount, winQuote.currency) : 0;
+      const rawAmt = parseFloat(invoiceVendorAmount) || 0;
+      const finalAmtInr = invoiceCurrency === "INR" ? rawAmt : convertToINR(rawAmt, invoiceCurrency);
+
       let varPct = 0;
-      if (approvedAmount > 0) {
-        varPct = Math.round(((finalAmt - approvedAmount) / approvedAmount) * 100);
+      if (approvedAmountInr > 0) {
+        varPct = Math.round(((finalAmtInr - approvedAmountInr) / approvedAmountInr) * 100);
       }
       const isHighVariance = varPct > 10;
       const justificationText = bookingVarianceJustification.trim();
@@ -1465,7 +1541,8 @@ export default function JobCardManager({
         timestamp: new Date().toISOString(),
         userId: operatorId,
         action: "Vendor Invoice Uploaded" + (justificationText ? " With Deviation" : ""),
-        notes: `Uploaded vendor invoice. No: ${invoiceNumber}, Amount: ${invoiceVendorAmount} ${invoiceCurrency}.` +
+        notes: `Uploaded vendor invoice. No: ${invoiceNumber}, Amount: ${invoiceVendorAmount} ${invoiceCurrency}` +
+               (invoiceCurrency !== "INR" ? ` (Converted to ${finalAmtInr.toFixed(2)} INR).` : ".") +
                (justificationText ? ` Reason: "${justificationText}"` : "")
       };
 
@@ -1475,12 +1552,12 @@ export default function JobCardManager({
         body: JSON.stringify({
           stage: 'FINANCE',
           bookingVendor: (winQuote ? winQuote.vendorName : selectedBookingVendor) || undefined,
-          invoiceVendorAmount: finalAmt,
-          invoiceCurrency: invoiceCurrency,
+          invoiceVendorAmount: finalAmtInr,
+          invoiceCurrency: "INR",
           invoiceNumber: invoiceNumber,
           ticketVendorInvoiceUrl: invoiceFileBase64 || undefined,
           ticketVendorInvoiceName: invoiceFileName || undefined,
-          bookingRecordedAt: new Date().toISOString(),
+          invoiceUploadedAt: new Date().toISOString(),
           financeVarianceReason: justificationText || undefined,
           auditLogs: [newAudit]
         })
@@ -1695,23 +1772,19 @@ export default function JobCardManager({
       triggerError("Please record the final vendor bill received.");
       return;
     }    try {
-      const convertToInrValue = (amt: number, curr: string) => {
-        const val = amt;
-        const c = curr.toUpperCase();
-        if (c === "USD" || c === "$") return val * 83;
-        if (c === "AUD") return val * 55;
-        if (c === "NGN") return val * 0.06;
-        if (c === "VND") return val * 0.0035;
-        return val;
-      };
+      const rawFinalAmt = parseFloat(invoiceVendorAmount) || 0;
+      const finalAmtInr = invoiceCurrency === "INR" ? rawFinalAmt : convertToINR(rawFinalAmt, invoiceCurrency);
+      
+      const rawGstAmt = parseFloat(airlineGstAmount) || 0;
+      const finalGstAmtInr = rawGstAmt > 0 
+        ? (invoiceCurrency === "INR" ? rawGstAmt : convertToINR(rawGstAmt, invoiceCurrency)) 
+        : 0;
 
-      const finalAmt = parseFloat(invoiceVendorAmount);
       // Retrieve original approved budget
       const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+      const appAmtInr = winQuote ? convertToINR(winQuote.amount, winQuote.currency) : 0;
       const appAmt = winQuote ? winQuote.amount : 0;
       
-      const appAmtInr = winQuote ? convertToInrValue(winQuote.amount, winQuote.currency) : 0;
-      const finalAmtInr = convertToInrValue(finalAmt, invoiceCurrency);
       const isReconSurged = finalAmtInr > appAmtInr;
       const reconVariancePct = appAmtInr > 0 ? Math.round(((finalAmtInr - appAmtInr) / appAmtInr) * 100) : 0;
 
@@ -1723,7 +1796,7 @@ export default function JobCardManager({
 
       let varianceWarning = "";
       if (isReconSurged) {
-        varianceWarning = `VARIANCE EXCEEDED BUDGET: Final invoice (${finalAmt} ${invoiceCurrency}) exceeds approved budget (${appAmt} ${winQuote?.currency || invoiceCurrency}) by ${reconVariancePct}%! Compliance Audit note: "${reconJustNote}"`;
+        varianceWarning = `VARIANCE EXCEEDED BUDGET: Final invoice (${rawFinalAmt} ${invoiceCurrency}) exceeds approved budget (${appAmt} ${winQuote?.currency || invoiceCurrency}) by ${reconVariancePct}%! Compliance Audit note: "${reconJustNote}"`;
       }
 
       const linkedIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
@@ -1741,8 +1814,12 @@ export default function JobCardManager({
         userId: operatorId,
         action: "Audit Rec Verification Completed & Closed" + (reconJustNote ? " With Deviation" : ""),
         notes: (requiresGst 
-          ? `Airline/Service GST Invoice of ${invoiceVendorAmount} ${invoiceCurrency} extracted and processed. Airline GSTIN: ${airlineGstNumber || "Not Provided"}.`
-          : `Non-GST Invoice of ${invoiceVendorAmount} ${invoiceCurrency} verified and processed. Booking verified.`) +
+          ? `Airline/Service GST Invoice of ${invoiceVendorAmount} ${invoiceCurrency} extracted and processed.` +
+            (invoiceCurrency !== "INR" ? ` Converted to ${finalAmtInr.toFixed(2)} INR.` : "") +
+            ` Airline GSTIN: ${airlineGstNumber || "Not Provided"}.`
+          : `Non-GST Invoice of ${invoiceVendorAmount} ${invoiceCurrency} verified and processed.` +
+            (invoiceCurrency !== "INR" ? ` Converted to ${finalAmtInr.toFixed(2)} INR.` : "") +
+            ` Booking verified.`) +
           (reconJustNote ? ` Compliance Audit note: "${reconJustNote}"` : "")
       };
 
@@ -1751,8 +1828,8 @@ export default function JobCardManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           stage: 'CLOSED', // Marks loop closed!
-          invoiceVendorAmount: finalAmt,
-          invoiceCurrency,
+          invoiceVendorAmount: finalAmtInr,
+          invoiceCurrency: "INR",
           invoiceNumber,
           gstDetailsCorrect,
           physicalInvoiceHandedOver,
@@ -1761,9 +1838,10 @@ export default function JobCardManager({
           airlineGstInvoiceUrl: gstInvoiceFileBase64 || undefined,
           airlineGstInvoiceName: gstInvoiceFileName || undefined,
           airlineGstNumber: airlineGstNumber || undefined,
-          airlineGstAmount: parseFloat(airlineGstAmount) || undefined,
+          airlineGstAmount: finalGstAmtInr || undefined,
           airlineGstVendorName: airlineGstVendorName || undefined,
           reconciliationRecordedAt: new Date().toISOString(),
+          gstInvoiceUploadedAt: new Date().toISOString(),
           financeVarianceReason: reconJustNote || undefined,
           auditLogs: [newAudit]
         })
@@ -1864,75 +1942,146 @@ export default function JobCardManager({
 
   // SIX SLA CHECKPOINTS TAT CALCULATOR ENGINE
   const calculateTATMetrics = (card: JobCard) => {
-    const created = new Date(card.created_at).getTime();
+    const parseTime = (val?: string) => val ? new Date(val).getTime() : null;
+
     const now = Date.now();
-    const approvedTime = card.approvedAt ? new Date(card.approvedAt).getTime() : null;
-    const bookedTime = card.bookingRecordedAt ? new Date(card.bookingRecordedAt).getTime() : null;
-    const reconciledTime = card.reconciliationRecordedAt ? new Date(card.reconciliationRecordedAt).getTime() : null;
-
-    // Checkpoint 1: RFQ Nominations Nominated
-    const nominationSpent = card.rfqVendors.length > 0 ? 1.2 : ((now - created) / (1000 * 60 * 60));
-    const nominationStatus = nominationSpent > 4 ? 'delayed' : 'within';
-
-    // Checkpoint 2: Quotes Bidding Received
-    const biddingSpent = card.quotes.length > 0 ? 2.8 : (card.rfqVendors.length > 0 ? ((now - created) / (1000 * 60 * 60)) : 0);
-    const biddingStatus = biddingSpent > 8 ? 'delayed' : biddingSpent === 0 ? 'not-started' : 'within';
-
-    // Checkpoint 3: Approved Quote Selected & SLA
-    let approvalSpent = 0;
-    let approvalStatus: 'within' | 'delayed' | 'not-started' = 'not-started';
-    if (approvedTime) {
-      approvalSpent = (approvedTime - created) / (1000 * 60 * 60);
-      approvalStatus = approvalSpent > 12 ? 'delayed' : 'within';
-    } else {
-      approvalSpent = (now - created) / (1000 * 60 * 60);
-      approvalStatus = card.stage === 'QUOTATION' ? 'not-started' : (approvalSpent > 12 ? 'delayed' : 'within');
+    const createdTime = parseTime(card.created_at);
+    
+    // Find Indent travel category and travel date
+    const localIndent = indents.find(i => i.id === card.id || i.id === card.indentId);
+    
+    const rfqTime = parseTime(card.rfqCompletedAt) || (card.winningQuoteId ? parseTime(card.created_at) : null);
+    const l2Time = parseTime(card.l2ApprovedAt) || parseTime(card.commercialApprovedAt);
+    
+    let workOrderTime = parseTime(card.workOrderSentAt);
+    if (!workOrderTime && card.auditLogs) {
+      const log = card.auditLogs.find(l => l.action.toLowerCase().includes("work order sent") || l.action.toLowerCase().includes("dispatched"));
+      if (log) workOrderTime = parseTime(log.timestamp);
     }
 
-    // Checkpoint 4: PNR Booking Dispatched Fulfillment
-    let bookingSpent = 0;
-    let bookingStatus: 'within' | 'delayed' | 'not-started' = 'not-started';
-    if (approvedTime) {
-      if (bookedTime) {
-        bookingSpent = (bookedTime - approvedTime) / (1000 * 60 * 60);
-        bookingStatus = bookingSpent > 24 ? 'delayed' : 'within';
+    const bookingTime = parseTime(card.bookingRecordedAt);
+    
+    let invoiceTime = parseTime(card.invoiceUploadedAt);
+    if (!invoiceTime && card.auditLogs) {
+      const log = card.auditLogs.find(l => l.action.toLowerCase().includes("vendor invoice uploaded"));
+      if (log) invoiceTime = parseTime(log.timestamp);
+    }
+
+    let gstTime = parseTime(card.gstInvoiceUploadedAt) || parseTime(card.reconciliationRecordedAt);
+    if (!gstTime && card.auditLogs) {
+      const log = card.auditLogs.find(l => l.action.toLowerCase().includes("reconciliation") || l.action.toLowerCase().includes("closed"));
+      if (log) gstTime = parseTime(log.timestamp);
+    }
+
+    const formatDuration = (ms: number) => {
+      const hours = ms / (1000 * 60 * 60);
+      if (hours < 24) {
+        return `${hours.toFixed(1)} Hrs`;
+      }
+      const days = hours / 24;
+      return `${days.toFixed(1)} Days`;
+    };
+
+    // Stage 1: Indent -> Comparison Sheet (48 Hrs)
+    const limit1 = 48 * 60 * 60 * 1000;
+    let s1Spent = 0;
+    let s1Status: 'delayed' | 'within' | 'not-started' = 'not-started';
+    if (createdTime) {
+      if (rfqTime) {
+        s1Spent = rfqTime - createdTime;
+        s1Status = s1Spent > limit1 ? 'delayed' : 'within';
       } else {
-        bookingSpent = (now - approvedTime) / (1000 * 60 * 60);
-        bookingStatus = card.stage === 'QUOTATION' ? 'not-started' : (bookingSpent > 24 ? 'delayed' : 'within');
+        s1Spent = now - createdTime;
+        s1Status = s1Spent > limit1 ? 'delayed' : 'within';
       }
     }
 
-    // Checkpoint 5: Service/Airline GST Invoice Auditing
-    let reconSpent = 0;
-    let reconStatus: 'within' | 'delayed' | 'not-started' = 'not-started';
-    if (bookedTime) {
-      if (reconciledTime) {
-        reconSpent = (reconciledTime - bookedTime) / (1000 * 60 * 60);
-        reconStatus = reconSpent > 48 ? 'delayed' : 'within';
+    // Stage 2: Comparison Sheet -> Approval (24 Hrs)
+    const limit2 = 24 * 60 * 60 * 1000;
+    let s2Spent = 0;
+    let s2Status: 'delayed' | 'within' | 'not-started' = 'not-started';
+    if (rfqTime) {
+      if (l2Time) {
+        s2Spent = l2Time - rfqTime;
+        s2Status = s2Spent > limit2 ? 'delayed' : 'within';
       } else {
-        reconSpent = (now - bookedTime) / (1000 * 60 * 60);
-        reconStatus = (card.stage === 'QUOTATION' || card.stage === 'APPROVAL') ? 'not-started' : (reconSpent > 48 ? 'delayed' : 'within');
+        s2Spent = now - rfqTime;
+        s2Status = s2Spent > limit2 ? 'delayed' : 'within';
       }
     }
 
-    // Checkpoint 6: Closed Loop Archive Turnaround
-    let totalSpent = 0;
-    let totalStatus: 'within' | 'delayed' | 'not-started' = 'not-started';
-    if (reconciledTime) {
-      totalSpent = (reconciledTime - created) / (1000 * 60 * 60);
-      totalStatus = totalSpent > 240 ? 'delayed' : 'within';
-    } else {
-      totalSpent = (now - created) / (1000 * 60 * 60);
-      totalStatus = totalSpent > 240 ? 'delayed' : 'within';
+    // Stage 3: Approval -> Send for ticket issue (2 Hrs)
+    const limit3 = 2 * 60 * 60 * 1000;
+    let s3Spent = 0;
+    let s3Status: 'delayed' | 'within' | 'not-started' = 'not-started';
+    if (l2Time) {
+      if (workOrderTime) {
+        s3Spent = workOrderTime - l2Time;
+        s3Status = s3Spent > limit3 ? 'delayed' : 'within';
+      } else {
+        s3Spent = now - l2Time;
+        s3Status = s3Spent > limit3 ? 'delayed' : 'within';
+      }
+    }
+
+    // Stage 4: Send for ticket issue -> Ticket copy upload (6 Hrs)
+    const limit4 = 6 * 60 * 60 * 1000;
+    let s4Spent = 0;
+    let s4Status: 'delayed' | 'within' | 'not-started' = 'not-started';
+    if (workOrderTime) {
+      if (bookingTime) {
+        s4Spent = bookingTime - workOrderTime;
+        s4Status = s4Spent > limit4 ? 'delayed' : 'within';
+      } else {
+        s4Spent = now - workOrderTime;
+        s4Status = s4Spent > limit4 ? 'delayed' : 'within';
+      }
+    }
+
+    // Stage 5: Ticket copy upload -> Invoice upload (10 Days)
+    const limit5 = 10 * 24 * 60 * 60 * 1000;
+    let s5Spent = 0;
+    let s5Status: 'delayed' | 'within' | 'not-started' = 'not-started';
+    if (bookingTime) {
+      if (invoiceTime) {
+        s5Spent = invoiceTime - bookingTime;
+        s5Status = s5Spent > limit5 ? 'delayed' : 'within';
+      } else {
+        s5Spent = now - bookingTime;
+        s5Status = s5Spent > limit5 ? 'delayed' : 'within';
+      }
+    }
+
+    // Stage 6: Invoice upload -> GST Invoice Airlines (10 Days or Travel date + 10 Days)
+    const limit6 = 10 * 24 * 60 * 60 * 1000;
+    const isGstApplicable = localIndent ? localIndent.gst_applicable : false;
+    let s6Spent = 0;
+    let s6Status: 'delayed' | 'within' | 'not-started' = 'not-started';
+    
+    if (isGstApplicable && invoiceTime) {
+      const travelTime = localIndent ? parseTime(localIndent.travel_date) : null;
+      const travelLimit = 10 * 24 * 60 * 60 * 1000;
+      
+      if (gstTime) {
+        s6Spent = gstTime - invoiceTime;
+        const diffTravel = travelTime ? gstTime - travelTime : 0;
+        s6Status = (s6Spent > limit6 || (travelTime ? diffTravel > travelLimit : false)) ? 'delayed' : 'within';
+      } else {
+        s6Spent = now - invoiceTime;
+        const diffTravel = travelTime ? now - travelTime : 0;
+        s6Status = (s6Spent > limit6 || (travelTime ? diffTravel > travelLimit : false)) ? 'delayed' : 'within';
+      }
+    } else if (!isGstApplicable) {
+      s6Status = 'within';
     }
 
     return [
-      { title: "RFQ Vendor Nominations", spentStr: `${nominationSpent.toFixed(1)} Hrs`, limitStr: "4 Hours", status: nominationStatus },
-      { title: "Vendor Quotes bidding Bids", spentStr: biddingSpent === 0 ? "Pending RFQs" : `${biddingSpent.toFixed(1)} Hrs`, limitStr: "8 Hours", status: biddingStatus },
-      { title: "Financial Approval Authorization", spentStr: approvedTime ? `${approvalSpent.toFixed(1)} Hrs` : `${approvalSpent.toFixed(1)} Hrs`, limitStr: "12 Hours", status: approvalStatus },
-      { title: "PNR Issued & Booking Fulfillment", spentStr: bookedTime ? `${bookingSpent.toFixed(1)} Hrs` : (approvedTime ? `${bookingSpent.toFixed(1)} Hrs` : "Waiting Approval"), limitStr: "24 Hours", status: bookingStatus },
-      { title: "GST Audit Reconciliation", spentStr: reconciledTime ? `${reconSpent.toFixed(1)} Hrs` : (bookedTime ? `${reconSpent.toFixed(1)} Hrs` : "Waiting Booking"), limitStr: "48 Hours", status: reconStatus },
-      { title: "Ultimate Closed Loop Archiving", spentStr: `${totalSpent.toFixed(1)} Hrs`, limitStr: "240 Hours", status: totalStatus }
+      { title: "Quotation Bidding", spentStr: createdTime ? formatDuration(s1Spent) : "N/A", limitStr: "48 Hours", status: s1Status },
+      { title: "Review & Approval", spentStr: rfqTime ? formatDuration(s2Spent) : "Awaiting Quote Selection", limitStr: "24 Hours", status: s2Status },
+      { title: "Work Order Dispatch", spentStr: l2Time ? formatDuration(s3Spent) : "Awaiting Approval", limitStr: "2 Hours", status: s3Status },
+      { title: "Ticket Fulfillment", spentStr: workOrderTime ? formatDuration(s4Spent) : "Awaiting Work Order", limitStr: "6 Hours", status: s4Status },
+      { title: "Invoice Submission", spentStr: bookingTime ? formatDuration(s5Spent) : "Awaiting Booking", limitStr: "10 Days", status: s5Status },
+      { title: "GST Clearance", spentStr: !isGstApplicable ? "N/A (Non-GST)" : invoiceTime ? formatDuration(s6Spent) : "Awaiting Invoice", limitStr: "10 Days", status: s6Status }
     ];
   };
 
@@ -2337,6 +2486,23 @@ export default function JobCardManager({
                               <Clock className="w-3.5 h-3.5 text-orange-500 shrink-0" />
                               <span>{days} {days === 1 ? 'day' : 'days'} stale</span>
                             </div>
+
+                            {(() => {
+                              const tat = calculateTATMetrics(card);
+                              const breaches = tat.filter(s => s.status === "delayed").length;
+                              if (breaches > 0) {
+                                return (
+                                  <span className="inline-block mt-1.5 px-2 py-0.5 bg-rose-50 border border-rose-200 text-rose-700 text-[8px] font-black rounded uppercase tracking-wider animate-pulse text-right">
+                                    ⚠️ {breaches} Breach{breaches > 1 ? "es" : ""}
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="inline-block mt-1.5 px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-[8px] font-black rounded uppercase tracking-wider text-right">
+                                  ✓ TAT OK
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -2840,6 +3006,97 @@ export default function JobCardManager({
                           <p className="text-sm font-black text-emerald-600 truncate uppercase">{selectedCard.paymentStatus || 'IN-PROGRESS'}</p>
                         </div>
                       </div>
+
+                      {/* TAT MONITORING TIMELINE BOARD */}
+                      {(() => {
+                        const tatStages = calculateTATMetrics(selectedCard);
+                        const breachedCount = tatStages.filter(s => s.status === "delayed").length;
+                        
+                        return (
+                          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4 text-left">
+                            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                              <div className="flex items-center gap-2">
+                                <Clock className="w-5 h-5 text-slate-800" />
+                                <div>
+                                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest">TAT Timeline Tracker</h4>
+                                  <p className="text-[9.5px] text-slate-400 font-bold uppercase mt-0.5">SLA turn-around time milestones</p>
+                                </div>
+                              </div>
+                              {breachedCount > 0 ? (
+                                <span className="px-2.5 py-1 bg-rose-100 border border-rose-250 text-rose-800 text-[8.5px] font-black rounded-lg uppercase tracking-wider animate-pulse flex items-center gap-1">
+                                  ⚠️ {breachedCount} Breach{breachedCount > 1 ? "es" : ""} Detected
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-1 bg-emerald-100 border border-emerald-250 text-emerald-800 text-[8.5px] font-black rounded-lg uppercase tracking-wider flex items-center gap-1">
+                                  ✓ SLA Compliant
+                                </span>
+                              )}
+                            </div>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                              {tatStages.map((stage) => {
+                                const isBreached = stage.status === "delayed";
+                                const isCompleted = stage.status === "within" && (
+                                  stage.spentStr !== "N/A" && 
+                                  stage.spentStr !== "Awaiting Quote Selection" &&
+                                  stage.spentStr !== "Awaiting Approval" &&
+                                  stage.spentStr !== "Awaiting Work Order" &&
+                                  stage.spentStr !== "Awaiting Booking" &&
+                                  stage.spentStr !== "Awaiting Invoice" &&
+                                  stage.spentStr !== "N/A (Non-GST)"
+                                );
+                                const isInProgress = stage.status === "within" && !isCompleted;
+                                
+                                let cardBg = "bg-slate-50/50 border-slate-200 text-slate-500";
+                                let badgeBg = "bg-slate-100 text-slate-500 border-slate-200";
+                                let statusLabel = "PENDING";
+                                
+                                if (isBreached) {
+                                  cardBg = "bg-rose-50/60 border-rose-200 text-rose-950";
+                                  badgeBg = "bg-rose-600 text-white border-rose-600 animate-pulse";
+                                  statusLabel = "BREACHED";
+                                } else if (isCompleted) {
+                                  cardBg = "bg-emerald-50/40 border-emerald-200 text-emerald-950";
+                                  badgeBg = "bg-emerald-600 text-white border-emerald-600";
+                                  statusLabel = "COMPLETED";
+                                } else if (isInProgress) {
+                                  cardBg = "bg-amber-50/55 border-amber-250 text-amber-950";
+                                  badgeBg = "bg-amber-500 text-slate-950 border-amber-500 font-black animate-pulse";
+                                  statusLabel = "IN PROGRESS";
+                                }
+
+                                return (
+                                  <div 
+                                    key={stage.title} 
+                                    className={`p-4 border-2 rounded-2xl flex flex-col justify-between transition-all duration-150 ${cardBg}`}
+                                  >
+                                    <div className="flex justify-between items-start gap-2">
+                                      <span className="text-[10px] font-black uppercase tracking-wider block leading-tight max-w-[140px]">
+                                        {stage.title}
+                                      </span>
+                                      <span className={`px-2 py-0.5 rounded text-[8px] font-black border tracking-wider ${badgeBg}`}>
+                                        {statusLabel}
+                                      </span>
+                                    </div>
+                                    
+                                    <div className="mt-3.5 space-y-1">
+                                      <div className="flex justify-between items-center text-[9px] font-semibold text-slate-400 uppercase tracking-widest">
+                                        <span>TAT Limit:</span>
+                                        <strong className="text-slate-700 font-extrabold">{stage.limitStr}</strong>
+                                      </div>
+                                      <div className="text-[10px] font-black uppercase tracking-wide leading-tight mt-1 flex flex-col">
+                                        <span className={isBreached ? "text-rose-600 font-black" : isCompleted ? "text-emerald-700 font-black" : "text-slate-500 font-bold"}>
+                                          {isBreached ? `Breached: ${stage.spentStr}` : isCompleted ? `Completed: ${stage.spentStr}` : stage.spentStr}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
 
@@ -3893,6 +4150,11 @@ export default function JobCardManager({
                               </select>
                             </div>
                           </div>
+                          {bookingCurrency !== "INR" && bookingAmount && (
+                            <div className="mt-2 text-[10px] font-black text-emerald-600 uppercase tracking-wider bg-emerald-50 border border-emerald-200 p-2 rounded-xl text-center">
+                              ≈ INR {convertToINR(parseFloat(bookingAmount) || 0, bookingCurrency).toLocaleString('en-IN', { maximumFractionDigits: 2 })} (Converted at live forex rate)
+                            </div>
+                          )}
                         </div>
 
                         <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4">
@@ -4053,6 +4315,11 @@ export default function JobCardManager({
                               </select>
                             </div>
                           </div>
+                          {invoiceCurrency !== "INR" && invoiceVendorAmount && (
+                            <div className="mt-2 text-[10px] font-black text-emerald-600 uppercase tracking-wider bg-emerald-50 border border-emerald-200 p-2 rounded-xl text-center">
+                              ≈ INR {convertToINR(parseFloat(invoiceVendorAmount) || 0, invoiceCurrency).toLocaleString('en-IN', { maximumFractionDigits: 2 })} (Converted at live forex rate)
+                            </div>
+                          )}
                         </div>
 
                         {/* Invoice File Uploader */}
@@ -4096,15 +4363,7 @@ export default function JobCardManager({
 
                         {/* COST VARIANCE COMPLIANCE CORNER */}
                         {(() => {
-                          const convertToInrValueComp = (amt: number, curr: string) => {
-                            const val = amt;
-                            const c = curr.toUpperCase();
-                            if (c === "USD" || c === "$") return val * 83;
-                            if (c === "AUD") return val * 55;
-                            if (c === "NGN") return val * 0.06;
-                            if (c === "VND") return val * 0.0035;
-                            return val;
-                          };
+                          const convertToInrValueComp = (amt: number, curr: string) => convertToINR(amt, curr);
 
                           const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
                           if (!winQuote || !invoiceVendorAmount) return null;
@@ -4477,6 +4736,12 @@ export default function JobCardManager({
                             </div>
                           </div>
 
+                          {invoiceCurrency !== "INR" && invoiceVendorAmount && (
+                            <div className="text-[10px] font-black text-emerald-600 uppercase tracking-wider bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-center">
+                              ≈ INR {convertToINR(parseFloat(invoiceVendorAmount) || 0, invoiceCurrency).toLocaleString('en-IN', { maximumFractionDigits: 2 })} (Converted at live forex rate)
+                            </div>
+                          )}
+
                           {/* GST AND PHYSICAL COPY CHECKLISTS */}
                           <div className="p-6 border-2 border-slate-900 rounded-3xl bg-slate-50 space-y-4">
                             <span className="text-[10px] font-black text-slate-900 uppercase block tracking-wider">
@@ -4521,15 +4786,7 @@ export default function JobCardManager({
 
                           {/* DYNAMIC AUDIT COST VARIANCE SECTION */}
                           {(() => {
-                            const convertToInrValueComp = (amt: number, curr: string) => {
-                              const val = amt;
-                              const c = curr.toUpperCase();
-                              if (c === "USD" || c === "$") return val * 83;
-                              if (c === "AUD") return val * 55;
-                              if (c === "NGN") return val * 0.06;
-                              if (c === "VND") return val * 0.0035;
-                              return val;
-                            };
+                            const convertToInrValueComp = (amt: number, curr: string) => convertToINR(amt, curr);
 
                             const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
                             if (!winQuote || !invoiceVendorAmount) return null;

@@ -197,6 +197,13 @@ export interface JobCard {
   paymentAmountINR?: number; // Equivalent INR Amount
   paymentRecordedAt?: string;
   
+  // Turn Around Time (TAT) Tracking
+  rfqCompletedAt?: string;
+  l2ApprovedAt?: string;
+  workOrderSentAt?: string;
+  invoiceUploadedAt?: string;
+  gstInvoiceUploadedAt?: string;
+  
   // History logs
   auditLogs: AuditLogEntry[];
   voided?: boolean;

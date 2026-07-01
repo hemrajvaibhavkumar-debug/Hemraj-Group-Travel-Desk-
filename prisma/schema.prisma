@@ -198,6 +198,13 @@ model JobCard {
   isCancelled                 Boolean        @default(false)
   cancellationReason          String?
   cancelledAt                 String?
+  
+  // TAT Timelines
+  rfqCompletedAt              String?
+  l2ApprovedAt                String?
+  workOrderSentAt             String?
+  invoiceUploadedAt           String?
+  gstInvoiceUploadedAt        String?
   cancellationCharges         Float?
   cancellationGstInvoiceUrl   String?
   cancellationGstInvoiceName  String?
