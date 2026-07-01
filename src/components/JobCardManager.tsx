@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { JobCard, JobCardQuote, AuditLogEntry, TravelIndent, Employee, JobCardStage, Vendor, QuoteSubCost } from "../types";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { JobCard, JobCardQuote, AuditLogEntry, TravelIndent, Employee, JobCardStage, Vendor } from "../types";
 import EmployeeProfileModal from "./EmployeeProfileModal";
 import { 
   Building2, Briefcase, Database, Users, HelpCircle, 
@@ -29,6 +29,8 @@ interface JobCardManagerProps {
   setKanbanView: (view: boolean) => void;
   activeUserName: string;
   forexRates?: Record<string, number>;
+  selectedCardId?: string | null;
+  onSelectCard?: (id: string | null) => void;
 }
 
 export default function JobCardManager({ 
@@ -45,7 +47,9 @@ export default function JobCardManager({
   setActiveTab,
   kanbanView,
   setKanbanView,
-  forexRates
+  forexRates,
+  selectedCardId,
+  onSelectCard
 }: JobCardManagerProps) {
   const [jobCards, setJobCards] = useState<JobCard[]>(initialJobCards);
   const [selectedCard, setSelectedCard] = useState<JobCard | null>(null);
@@ -53,6 +57,47 @@ export default function JobCardManager({
   const [isLeftListCollapsed, setIsLeftListCollapsed] = useState(false);
   
   const [activeViewSection, setActiveViewSection] = useState<JobCardStage | 'OVERVIEW' | 'VENDOR_INVOICE' | null>(null);
+
+  // Track the previous selectedCardId so we can distinguish a genuine card navigation
+  // (user clicked a different card) from a same-card data update (applyOptimisticUpdate).
+  // Only genuine navigations should reset activeViewSection back to OVERVIEW.
+  const prevSelectedCardIdRef = useRef<string | null | undefined>(undefined);
+
+  // Synchronize selectedCard state with selectedCardId prop
+  useEffect(() => {
+    const isNewCard = selectedCardId !== prevSelectedCardIdRef.current;
+    prevSelectedCardIdRef.current = selectedCardId ?? null;
+
+    if (selectedCardId) {
+      const card = jobCards.find(c => c.id === selectedCardId);
+      if (card) {
+        setSelectedCard(card);
+        // Only reset to OVERVIEW when the user has genuinely navigated to a DIFFERENT card.
+        // When the same card's data updates (applyOptimisticUpdate), keep the current section.
+        if (isNewCard) {
+          setActiveViewSection('OVERVIEW');
+        }
+      }
+    } else {
+      setSelectedCard(null);
+      if (isNewCard) {
+        setActiveViewSection(null);
+      }
+    }
+  }, [selectedCardId, jobCards]);
+
+  const handleSelectCardLocal = (card: JobCard | null) => {
+    if (onSelectCard) {
+      onSelectCard(card ? card.id : null);
+    } else {
+      setSelectedCard(card);
+      if (card) {
+        if (!activeViewSection) setActiveViewSection('OVERVIEW');
+      } else {
+        setActiveViewSection(null);
+      }
+    }
+  };
   
   // Advanced Filter states
   const [filterSearch, setFilterSearch] = useState("");
@@ -80,9 +125,20 @@ export default function JobCardManager({
   };
 
   // Sync section view with the card's native stage when it changes, and hydrate form states
+  // IMPORTANT: We only reset to OVERVIEW and clear form state when the card ID genuinely changes.
+  // When the same card's data updates (e.g. after applyOptimisticUpdate), we preserve the
+  // active section and only re-hydrate fields that come from the server (not user-entered ones).
+  const prevSelectedCardIdForFormRef = useRef<string | null>(null);
   useEffect(() => {
     if (selectedCard) {
-      setActiveViewSection('OVERVIEW');
+      const isNewCardForForm = selectedCard.id !== prevSelectedCardIdForFormRef.current;
+      prevSelectedCardIdForFormRef.current = selectedCard.id;
+
+      if (isNewCardForForm) {
+        // Genuine new card — reset section and all form state
+        setActiveViewSection('OVERVIEW');
+      }
+      // Always re-hydrate fields sourced from the card/server (safe to sync on every update)
       setInvoiceVendorAmount(selectedCard.invoiceVendorAmount !== undefined ? String(selectedCard.invoiceVendorAmount) : "");
       setInvoiceCurrency(selectedCard.invoiceCurrency || "INR");
       setInvoiceNumber(selectedCard.invoiceNumber || "");
@@ -207,11 +263,6 @@ export default function JobCardManager({
   const [quoteTravelDate, setQuoteTravelDate] = useState("");
   const [isAirlineQuote, setIsAirlineQuote] = useState(false);
 
-  // Dynamic Quote Sub-Costs and AI Extract States
-  const [subCosts, setSubCosts] = useState<QuoteSubCost[]>([]);
-  const [singleSubCategory, setSingleSubCategory] = useState<"FLIGHT" | "TRAIN" | "HOTEL" | "CAB" | "OTHER">("FLIGHT");
-  const [singleSubDesc, setSingleSubDesc] = useState("");
-  const [singleSubAmount, setSingleSubAmount] = useState("");
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
 
   // Booking Fulfillment form states
@@ -328,12 +379,12 @@ export default function JobCardManager({
       }
 
       triggerSuccess(`Job Card ${selectedCard.id} successfully cancelled.`);
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       setShowCancelModal(false);
       setCancellationReasonInput("");
       setCancellationCharges("");
       setCancellationGstFileBase64("");
       setCancellationGstFileName("");
-      await onRefresh();
     } catch (err: any) {
       triggerError(err.message || "Error during cancellation");
     } finally {
@@ -381,7 +432,7 @@ export default function JobCardManager({
       
       // Select the new rescheduled card to immediately display it in active workspace!
       if (data.newCard) {
-        setSelectedCard(data.newCard);
+        handleSelectCardLocal(data.newCard);
       }
     } catch (err: any) {
       triggerError(err.message || "Error during reschedule trigger");
@@ -407,6 +458,18 @@ export default function JobCardManager({
     setLocalError(msg);
     setTimeout(() => setLocalError(""), 5000);
   };
+
+  // ─── Optimistic State Update Helper ────────────────────────────────────────
+  // Instead of calling onRefresh() (which fetches all 6 endpoints and causes a
+  // full app re-render), we apply the server's returned jobCard directly to local
+  // state. This makes UI updates instantaneous. Falls back to onRefresh only for
+  // operations that create/delete cards (server-assigned IDs).
+  const applyOptimisticUpdate = (updatedCard: JobCard) => {
+    setJobCards(prev => prev.map(jc => jc.id === updatedCard.id ? updatedCard : jc));
+    // Also sync selectedCard if it's the one being updated
+    setSelectedCard(prev => prev && prev.id === updatedCard.id ? updatedCard : prev);
+  };
+  // ───────────────────────────────────────────────────────────────────────────
 
   // Convert files helper
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setBase64: (val: string) => void, setFileName: (name: string) => void) => {
@@ -441,10 +504,10 @@ export default function JobCardManager({
         throw new Error(data.error || "Failed initialization of tracking parameters.");
       }
 
-      await onRefresh();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess(`Job Card initialized successfully for ${indent.id}!`);
       const matched = data.jobCard;
-      if (matched) setSelectedCard(matched);
+      if (matched) handleSelectCardLocal(matched);
     } catch (err: any) {
       triggerError(err.message || "Could not spawn job card.");
     }
@@ -477,7 +540,8 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("I/O failure saving RFQ list");
-      await onRefresh();
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess(`Added ${vendorName} to RFQ list.`);
     } catch (err: any) {
       triggerError(err.message);
@@ -506,48 +570,15 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Could not drop RFQ vendor.");
-      await onRefresh();
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess("Omitted vendor.");
     } catch (err: any) {
       triggerError(err.message);
     }
   };
 
-  const handleAddSubCost = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!singleSubAmount || parseFloat(singleSubAmount) <= 0) {
-      triggerError("Please specify a valid sub cost amount.");
-      return;
-    }
-    const amt = parseFloat(singleSubAmount);
-    const newSub: QuoteSubCost = {
-      category: singleSubCategory,
-      description: singleSubDesc.trim() || `${singleSubCategory} Cost Item`,
-      amount: amt,
-      airline: singleSubCategory === "FLIGHT" ? quoteAirline : undefined,
-      sector: singleSubCategory === "FLIGHT" ? quoteSector : undefined,
-      layover: singleSubCategory === "FLIGHT" ? quoteLayover : undefined
-    };
-    const updated = [...subCosts, newSub];
-    setSubCosts(updated);
-    
-    const totalSum = updated.reduce((sum, item) => sum + item.amount, 0);
-    setQuoteAmount(totalSum.toString());
-    
-    setSingleSubDesc("");
-    setSingleSubAmount("");
-    // Also reset flight specific states for individual items
-    setQuoteAirline("");
-    setQuoteSector("");
-    setQuoteLayover("");
-  };
 
-  const handleRemoveSubCost = (index: number) => {
-    const updated = subCosts.filter((_, i) => i !== index);
-    setSubCosts(updated);
-    const totalSum = updated.reduce((sum, item) => sum + item.amount, 0);
-    setQuoteAmount(totalSum > 0 ? totalSum.toString() : "");
-  };
 
   // 4. Quotation CRUD Operations
   const handleDeleteQuote = async (quoteId: string) => {
@@ -576,8 +607,9 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Delete operation failed on server.");
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess("Quotation record purged from registry.");
-      await onRefresh();
     } catch (err: any) {
       triggerError(err.message);
     }
@@ -588,7 +620,6 @@ export default function JobCardManager({
     setQuoteVendorName(quote.vendorName);
     setQuoteAmount(quote.amount.toString());
     setQuoteCurrency(quote.currency);
-    setSubCosts(quote.subCosts || []);
     setQuoteAirline(quote.airline || "");
     setQuoteSector(quote.sector || "");
     setQuoteLayover(quote.layover || "");
@@ -609,7 +640,6 @@ export default function JobCardManager({
     setQuoteVendorName("");
     setQuoteAmount("");
     setQuoteCurrency("INR");
-    setSubCosts([]);
     setQuoteAirline("");
     setQuoteSector("");
     setQuoteLayover("");
@@ -631,20 +661,17 @@ export default function JobCardManager({
 
     setSubmittingQuote(true);
     try {
-      const primaryFlight = subCosts.find(c => c.category === "FLIGHT");
-
       const newQuote: JobCardQuote = {
-        id: editingQuoteId || "QT-" + Math.floor(100 + Math.random() * 900),
+        id: editingQuoteId || `QT-${selectedCard.id}-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
         vendorName: quoteVendorName,
         amount: parseFloat(quoteAmount),
         currency: quoteCurrency,
         quoteFileUrl: quoteFileBase64 || undefined,
         quoteFileName: quoteFileName || undefined,
         created_at: new Date().toISOString(),
-        subCosts: subCosts.length > 0 ? subCosts : undefined,
-        airline: primaryFlight?.airline,
-        sector: primaryFlight?.sector,
-        layover: primaryFlight?.layover,
+        airline: quoteAirline || undefined,
+        sector: quoteSector || undefined,
+        layover: quoteLayover || undefined,
         travelDate: quoteTravelDate,
         agentName: activeUserName,
         selectedEmails: selectedBidEmails,
@@ -674,11 +701,14 @@ export default function JobCardManager({
         })
       });
 
-      if (!res.ok) throw new Error("Failed persistent database save.");
-      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed persistent database save.");
+      }
+      const quoteData = await res.json();
+      if (quoteData.jobCard) applyOptimisticUpdate(quoteData.jobCard);
       triggerSuccess(editingQuoteId ? "Quotation bid updated." : "Quotation recorded in Card registry.");
       handleCancelQuoteEdit();
-      await onRefresh();
     } catch (err: any) {
       triggerError(err.message);
     } finally {
@@ -725,7 +755,8 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Failed assigning winning parameters.");
-      await onRefresh();
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess(`Assigned winning quote successfully!`);
     } catch (err: any) {
       triggerError(err.message);
@@ -733,21 +764,20 @@ export default function JobCardManager({
   };
 
   // 6. Submit to Approval Workflow with 2-level initializes
+  // NOTE: L1 job is to fill quotation data and authenticate them. L2 selects the winner in the Approval tab.
   const handleSendForApproval = async () => {
     if (!selectedCard) return;
-    if (!selectedCard.winningQuoteId) {
-      triggerError("Action Forbidden: You must designate a Winning Quote before requesting workflow approval.");
+    if (selectedCard.quotes.length === 0) {
+      triggerError("Action Forbidden: At least one quotation must be logged before dispatching for approval.");
       return;
     }
-    const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
-    if (!winQuote) return;
 
     try {
       const newAudit: AuditLogEntry = {
         timestamp: new Date().toISOString(),
         userId: operatorId,
         action: "Dispatched for Two-Level Approval",
-        notes: `Ticket sent for Level 1 Travel Approval & Level 2 Commercial Authorization. Selected Bid: ${winQuote.vendorName} (${winQuote.amount} ${winQuote.currency}).`
+        notes: `Quotations authenticated and dispatched for L1 Travel Compliance verification and L2 Commercial bid selection & authorization. ${selectedCard.quotes.length} bid(s) submitted for review.`
       };
 
       const res = await fetch(`/api/job-cards/${selectedCard.id}`, {
@@ -763,8 +793,9 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Approval dispatch database fail.");
-      await onRefresh();
-      triggerSuccess("Dispatched for Two-Level Approval Workflow.");
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
+      triggerSuccess("Dispatched for Two-Level Approval Workflow. L2 will select the winning quote in the Approval section.");
     } catch (err: any) {
       triggerError(err.message);
     }
@@ -803,7 +834,8 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Failed to post L1 decision.");
-      await onRefresh();
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess(`Level 1 Travel Approval Decision [${decision}] saved successfully!`);
       setApprovalNotes("");
     } catch (err: any) {
@@ -847,7 +879,8 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Failed to post L2 decision.");
-      await onRefresh();
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess(`Level 2 Commercial VP Approval Decision Saved successfully! Card promoted to Booking stage.`);
       setApprovalNotes("");
     } catch (err: any) {
@@ -887,7 +920,8 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Failed to unapprove L1.");
-      await onRefresh();
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess("Level 1 Travel Approval rescinded successfully!");
     } catch (err: any) {
       triggerError("Error unapproving L1: " + err.message);
@@ -898,25 +932,35 @@ export default function JobCardManager({
 
   const handleL2CommercialUnapprove = async () => {
     if (!selectedCard) return;
+    if (!window.confirm("This will rescind BOTH L2 and L1 approvals and return the card fully to Bids stage for re-evaluation. The winning quote selection will be cleared. Proceed?")) return;
     setSubmittingApproval(true);
     try {
       const reviewer = "VP Commercial Admin";
       const newAudit: AuditLogEntry = {
         timestamp: new Date().toISOString(),
         userId: reviewer,
-        action: "Commercial Unapproved (Level 2 VP)",
-        notes: "L2 commercial approval rescinded by administrator. Card demoted to Approval stage."
+        action: "Full Approval Cascade Rescinded (L2 → L1)",
+        notes: "L2 VP rescinded both L2 and L1 approvals. Winning quote selection cleared. Card returned to Bids/Quotation stage for full re-evaluation."
       };
 
       const res = await fetch(`/api/job-cards/${selectedCard.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // Reset L2
           commercialApprovalStatus: "PENDING",
           commercialApprovedBy: null,
           commercialApprovedAt: null,
           commercialApprovalNotes: null,
-          stage: "APPROVAL",
+          // Auto-reset L1 as well
+          travelApprovalStatus: "PENDING",
+          travelApprovedBy: null,
+          travelApprovedAt: null,
+          travelApprovalNotes: null,
+          // Clear the winning quote selection so L2 selects fresh in Approval tab
+          winningQuoteId: null,
+          // Demote card all the way back to Bids/Quotation stage
+          stage: "QUOTATION",
           approvalStatus: "PENDING",
           approvedAt: null,
           approverName: null,
@@ -924,11 +968,12 @@ export default function JobCardManager({
         })
       });
 
-      if (!res.ok) throw new Error("Failed to unapprove L2.");
-      await onRefresh();
-      triggerSuccess("Level 2 Commercial VP Approval rescinded! Card demoted back to Approval stage.");
+      if (!res.ok) throw new Error("Failed to cascade-rescind approvals.");
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
+      triggerSuccess("Full approval cascade rescinded. Both L1 and L2 cleared. Card returned to Bids stage for re-evaluation.");
     } catch (err: any) {
-      triggerError("Error unapproving L2: " + err.message);
+      triggerError("Error rescinding approvals: " + err.message);
     } finally {
       setSubmittingApproval(false);
     }
@@ -941,6 +986,10 @@ export default function JobCardManager({
     // Find associated traveler and indent details
     const localIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
     const traveler = localIndent ? employees.find(e => e.employee_code === localIndent.employee_code) : null;
+
+    // Resolve travel specifics for payload
+    const seatPref = localIndent ? (localIndent.seat_preference === "OTHER" ? (localIndent.seat_preference_other || "Other") : (localIndent.seat_preference || "N/A")) : "N/A";
+    const mealPref = localIndent ? (localIndent.meal_preference === "OTHER" ? (localIndent.meal_preference_other || "Other") : (localIndent.meal_preference || "N/A")) : "N/A";
 
     const workOrderPayload = {
       cardId: selectedCard.id,
@@ -956,7 +1005,16 @@ export default function JobCardManager({
       selectedEmails: winQuote?.selectedEmails || [],
       selectedPhones: winQuote?.selectedPhones || [],
       authorizedBy: selectedCard.commercialApprovedBy || "VP Commercial Admin",
-      authorizedAt: selectedCard.commercialApprovedAt || new Date().toISOString()
+      authorizedAt: selectedCard.commercialApprovedAt || new Date().toISOString(),
+      
+      // Enriched travel specifics
+      travelType: localIndent?.travel_type || "FLIGHT",
+      seatPreference: seatPref,
+      mealPreference: mealPref,
+      luggageAllowance: localIndent?.luggage || "Standard / None",
+      trainPreferredClass: traveler?.train_preferred_class || "N/A",
+      trainBerthPreference: traveler?.train_berth_preference || "N/A",
+      trainMealPreference: traveler?.train_meal_preference || "N/A"
     };
 
     setSendingWorkOrder(true);
@@ -969,16 +1027,17 @@ export default function JobCardManager({
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        await fetch(`/api/job-cards/${selectedCard.id}`, {
+        const putRes = await fetch(`/api/job-cards/${selectedCard.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             workOrderSentAt: new Date().toISOString()
           })
         });
+        const putData = await putRes.json();
+        if (putData.jobCard) applyOptimisticUpdate(putData.jobCard);
         setWorkOrderSentMessage(data.message || "Work Order successfully sent!");
         triggerSuccess(data.message || "Work Order sent successfully!");
-        await onRefresh();
       } else {
         throw new Error(data.error || "Failed to dispatch work order.");
       }
@@ -993,6 +1052,7 @@ export default function JobCardManager({
     if (!selectedCard) return;
     const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
     const localIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
+    const travelerEmp = localIndent ? employees.find(e => e.employee_code === localIndent.employee_code) : null;
 
     const printWindow = window.open("", "_blank", "width=800,height=900");
     if (!printWindow) {
@@ -1220,7 +1280,7 @@ export default function JobCardManager({
                   
                   let rows = "";
                   
-                  if (type === "DOMESTIC" || type === "INTERNATIONAL") {
+                  if (type === "DOMESTIC" || type === "INTERNATIONAL" || type === "INTERNATIONAL_RETURN") {
                     rows += `
                       <tr>
                         <th>Seat Preference</th>
@@ -1239,15 +1299,15 @@ export default function JobCardManager({
                     rows += `
                       <tr>
                         <th>Preferred Class</th>
-                        <td>${resolvedEmployee?.train_preferred_class || "N/A"}</td>
+                        <td>${travelerEmp?.train_preferred_class || "N/A"}</td>
                       </tr>
                       <tr>
                         <th>Berth Preference</th>
-                        <td>${resolvedEmployee?.train_berth_preference || "N/A"}</td>
+                        <td>${travelerEmp?.train_berth_preference || "N/A"}</td>
                       </tr>
                       <tr>
                         <th>Meal Preference</th>
-                        <td>${resolvedEmployee?.train_meal_preference || "N/A"}</td>
+                        <td>${travelerEmp?.train_meal_preference || "N/A"}</td>
                       </tr>
                     `;
                   } else if (type === "BUS") {
@@ -1373,7 +1433,8 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Could not save communication dispatch record.");
-      await onRefresh();
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess(`Outbound Email Dispatched to '${emailVendorTo}' with CC [${ccRecipients}]!`);
       
       // Clean temporary state
@@ -1502,10 +1563,10 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Saving ticket details failed.");
-      
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess("Ticket details saved successfully!");
       setActiveViewSection('VENDOR_INVOICE');
-      await onRefresh();
     } catch (err: any) {
       triggerError(err.message);
     }
@@ -1564,7 +1625,8 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Saving vendor invoice details failed.");
-      
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess("Vendor invoice saved! Moving to Finance Approval.");
       setPnr("");
       setBookingAmount("");
@@ -1576,7 +1638,6 @@ export default function JobCardManager({
       setBookingMessage("");
       setBookingVarianceJustification("");
       setActiveViewSection('FINANCE');
-      await onRefresh();
     } catch (err: any) {
       triggerError(err.message);
     }
@@ -1628,10 +1689,10 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Finance clearance submission failed.");
-
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess("Finance payment released successfully! Ticket moved to Reconciliation Audits.");
       setFinanceVarianceReason("");
-      await onRefresh();
     } catch (err: any) {
       triggerError(err.message);
     }
@@ -1669,7 +1730,7 @@ export default function JobCardManager({
       if (!res.ok) throw new Error("Server rejected job card deletion.");
       
       triggerSuccess("Job Card tracking record has been purged successfully.");
-      setSelectedCard(null);
+      handleSelectCardLocal(null);
       await onRefresh();
     } catch (err: any) {
       triggerError(err.message);
@@ -1705,11 +1766,12 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Rejection update failed.");
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess(actionType === 'CORRECTION' 
         ? "Correction request sent back to the operations/booking desk!" 
         : "Payment request successfully Rejected and returned to Booking.");
       setFinanceVarianceReason("");
-      await onRefresh();
     } catch (err: any) {
       triggerError(err.message);
     }
@@ -1848,7 +1910,8 @@ export default function JobCardManager({
       });
 
       if (!res.ok) throw new Error("Could not register billing clearance.");
-
+      const data = await res.json();
+      if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess("Loop successfully closed! Billing details and audit history updated.");
       setInvoiceVendorAmount("");
       setInvoiceNumber("");
@@ -1860,7 +1923,6 @@ export default function JobCardManager({
       setAirlineGstNumber("");
       setAirlineGstAmount("");
       setReconVarianceJustification("");
-      await onRefresh();
     } catch (err: any) {
       triggerError(err.message);
     }
@@ -2139,7 +2201,7 @@ export default function JobCardManager({
               return (
                 <div
                   key={card.id}
-                  onClick={() => setSelectedCard(card)}
+                  onClick={() => handleSelectCardLocal(card)}
                   className={`p-5 border rounded-2xl text-left cursor-pointer transition-all hover:shadow-md duration-200 relative space-y-4 shadow-sm ${
                     colVoided ? "border-orange-200 bg-orange-50/20" :
                     isSelected ? "border-orange-500 ring-4 ring-orange-500/10 bg-white" : "border-slate-200 bg-white"
@@ -2427,7 +2489,7 @@ export default function JobCardManager({
                     return (
                       <div
                         key={card.id}
-                        onClick={() => setSelectedCard(card)}
+                        onClick={() => handleSelectCardLocal(card)}
                         className={`bg-white border p-6 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer relative ${
                           isVoided ? "border-orange-200 bg-orange-50/20" :
                           isSelected ? "border-orange-500 ring-4 ring-orange-500/10" : "border-slate-200"
@@ -2623,6 +2685,36 @@ export default function JobCardManager({
                             Mark Void
                           </button>
                         )}
+                        {!selectedCard.isCancelled && !selectedCard.voided && (
+                          <>
+                            <button
+                              type="button"
+                              id="btn-workspace-cancel"
+                              onClick={() => {
+                                setCancelModalType('CANCEL');
+                                setCancellationReasonInput("");
+                                setShowCancelModal(true);
+                              }}
+                              className="text-[9px] font-bold uppercase text-rose-400/70 hover:text-rose-400 hover:underline flex items-center gap-1.5 transition-colors"
+                            >
+                              <ShieldAlert className="w-3 h-3 shrink-0" />
+                              Cancel Ticket
+                            </button>
+                            <button
+                              type="button"
+                              id="btn-workspace-reschedule"
+                              onClick={() => {
+                                setCancelModalType('RESCHEDULE');
+                                setCancellationReasonInput("");
+                                setShowCancelModal(true);
+                              }}
+                              className="text-[9px] font-bold uppercase text-slate-400/70 hover:text-slate-200 hover:underline flex items-center gap-1.5 transition-colors"
+                            >
+                              <RefreshCw className="w-3 h-3 shrink-0" />
+                              Reschedule
+                            </button>
+                          </>
+                        )}
                         <button 
                           type="button" 
                           onClick={() => handleDeleteJobCard(selectedCard.id)}
@@ -2700,7 +2792,7 @@ export default function JobCardManager({
                           type="button"
                           onClick={() => {
                             const parent = jobCards.find(jc => jc.id === selectedCard.parentJobCardId);
-                            if (parent) setSelectedCard(parent);
+                            if (parent) handleSelectCardLocal(parent);
                           }}
                           className="bg-rose-900/40 hover:bg-rose-900 text-rose-300 px-2 py-1 rounded border border-rose-800 transition cursor-pointer"
                         >
@@ -2713,7 +2805,7 @@ export default function JobCardManager({
                           type="button"
                           onClick={() => {
                             const child = jobCards.find(jc => jc.id === selectedCard.rescheduledToCardId);
-                            if (child) setSelectedCard(child);
+                            if (child) handleSelectCardLocal(child);
                           }}
                           className="bg-emerald-950/40 hover:bg-emerald-950 text-emerald-300 px-2 py-1 rounded border border-emerald-900 transition flex items-center gap-1 cursor-pointer"
                         >
@@ -2757,7 +2849,7 @@ export default function JobCardManager({
                         type="button"
                         onClick={() => {
                           const parent = jobCards.find(jc => jc.id === selectedCard.parentJobCardId);
-                          if (parent) setSelectedCard(parent);
+                          if (parent) handleSelectCardLocal(parent);
                         }}
                         className="bg-emerald-900/40 hover:bg-emerald-900 text-emerald-300 px-2 py-1 rounded border border-emerald-800 transition cursor-pointer"
                       >
@@ -2938,41 +3030,7 @@ export default function JobCardManager({
                   </div>
                 </div>
 
-                {/* CANCEL & RESCHEDULE ACTION RAIL */}
-                {!selectedCard.isCancelled && (
-                  <div className="bg-slate-50 border border-slate-200/80 px-6 py-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-4 my-6 shadow-2xs">
-                    <div className="flex items-center gap-2 text-slate-700 text-[10px] uppercase font-black tracking-wider">
-                      <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
-                      <span>Administration Control Operations:</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        id="btn-workspace-cancel"
-                        onClick={() => {
-                          setCancelModalType('CANCEL');
-                          setCancellationReasonInput("");
-                          setShowCancelModal(true);
-                        }}
-                        className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-extrabold text-[9px] uppercase tracking-widest rounded-lg transition duration-150 flex items-center gap-1 cursor-pointer"
-                      >
-                        Cancel Request
-                      </button>
-                      <button
-                        type="button"
-                        id="btn-workspace-reschedule"
-                        onClick={() => {
-                          setCancelModalType('RESCHEDULE');
-                          setCancellationReasonInput("");
-                          setShowCancelModal(true);
-                        }}
-                        className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-950 text-white font-extrabold text-[9px] uppercase tracking-widest rounded-lg transition duration-150 flex items-center gap-1 cursor-pointer"
-                      >
-                        Reschedule Ticketing
-                      </button>
-                    </div>
-                  </div>
-                )}
+
 
                 {/* MAIN ACTIVE DRAWERS WORKSPACE */}
                 {(() => {
@@ -3171,18 +3229,6 @@ export default function JobCardManager({
                                     <div className="mt-1 text-base font-black text-slate-950 block tracking-tight font-mono">
                                       {q.amount} {q.currency}
                                     </div>
-
-                                    {/* Nest itemized cost breakdown if exists */}
-                                    {q.subCosts && q.subCosts.length > 0 && (
-                                      <div className="mt-3 pt-2 border-t border-dashed border-slate-150 space-y-1 text-left">
-                                        {q.subCosts.map((sub, sIdx) => (
-                                          <div key={sIdx} className="flex justify-between items-center text-[8.5px] font-extrabold text-slate-500">
-                                            <span className="truncate uppercase pr-1">{sub.category}: {sub.description}</span>
-                                            <span className="font-mono text-slate-800 font-black shrink-0">{sub.amount}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
                                   </div>
                                 );
                               });
@@ -3216,7 +3262,7 @@ export default function JobCardManager({
                         </h4>
 
                         <div className="space-y-8">
-                          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6">
+                          <form onSubmit={handleSubmitQuote} className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6">
                             <div className="flex items-center gap-2 mb-2 pb-3 border-b border-slate-100">
                               <div className="w-1.5 h-4 bg-orange-600 rounded-full"></div>
                               <h5 className="text-[11px] font-black uppercase tracking-widest text-slate-950">
@@ -3393,90 +3439,10 @@ export default function JobCardManager({
                               );
                             })()}
 
-                            {/* Optional itemized sub-costs list to support the backend list requirement */}
-                            <div className="bg-slate-50/50 border border-slate-200 rounded-2xl p-4 space-y-4 text-left">
-                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block font-bold">Add Itemized Cost Breakdown (Optional)</span>
-                              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                                <div className="md:col-span-4">
-                                  <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 font-bold">Item Type</label>
-                                  <div className="flex gap-1">
-                                    {["FLIGHT", "HOTEL", "CAB", "OTHER"].map(cat => (
-                                      <button
-                                        key={cat}
-                                        type="button"
-                                        onClick={() => setSingleSubCategory(cat as any)}
-                                        className={`px-2 py-1 rounded text-[9px] font-black transition cursor-pointer ${
-                                          singleSubCategory === cat 
-                                            ? "bg-slate-950 text-white shadow-sm" 
-                                            : "bg-white text-slate-500 border border-slate-200"
-                                        }`}
-                                      >
-                                        {cat}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                                <div className="md:col-span-5">
-                                  <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 font-bold">Item Description</label>
-                                  <input
-                                    type="text"
-                                    placeholder="e.g. Economy Ticket"
-                                    value={singleSubDesc}
-                                    onChange={e => setSingleSubDesc(e.target.value)}
-                                    className="w-full h-8 bg-white border border-slate-200 rounded-lg px-2 text-xs font-bold"
-                                  />
-                                </div>
-                                <div className="md:col-span-3 flex gap-2">
-                                  <div className="flex-1">
-                                    <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 font-bold">Amount</label>
-                                    <input
-                                      type="number"
-                                      placeholder="0"
-                                      value={singleSubAmount}
-                                      onChange={e => setSingleSubAmount(e.target.value)}
-                                      className="w-full h-8 bg-white border border-slate-200 rounded-lg px-2 text-xs font-black font-mono"
-                                    />
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={handleAddSubCost}
-                                    className="h-8 w-8 flex items-center justify-center bg-slate-900 text-white rounded-lg mt-4.5 hover:bg-slate-800 transition active:scale-95 cursor-pointer"
-                                  >
-                                    <Plus className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
 
-                              {subCosts.length > 0 && (
-                                <div className="border border-slate-200 bg-white rounded-xl divide-y divide-slate-100 overflow-hidden mt-2">
-                                  {subCosts.map((sub, sIdx) => (
-                                    <div key={sIdx} className="flex items-center justify-between p-3 text-xs">
-                                      <div className="flex items-center gap-2">
-                                        <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[8px] font-bold text-slate-600">{sub.category}</span>
-                                        <span className="font-bold text-slate-700">{sub.description}</span>
-                                      </div>
-                                      <div className="flex items-center gap-3">
-                                        <span className="font-mono font-black">{sub.amount}</span>
-                                        <button type="button" onClick={() => handleRemoveSubCost(sIdx)} className="text-rose-500 hover:bg-rose-50 p-1 rounded cursor-pointer">
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
 
-                            {/* File Upload and Submission Action Panel */}
-                            <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100">
-                              <div className="flex items-center gap-3">
-                                <input type="file" accept=".pdf,image/*" onChange={e => handleFileChange(e, setQuoteFileBase64, setQuoteFileName)} className="hidden" id="final-quote-file" />
-                                <label htmlFor="final-quote-file" className={`flex items-center gap-2 px-5 py-2.5 border border-dashed rounded-xl cursor-pointer transition-all ${quoteFileName ? "border-emerald-500 bg-emerald-50 text-emerald-600 font-bold" : "border-slate-350 bg-slate-50 text-slate-500 hover:border-orange-500"}`}>
-                                  <Paperclip className="w-4 h-4" />
-                                  <span className="text-[10px] font-black uppercase tracking-widest truncate max-w-[150px]">{quoteFileName || "Attach Proposal PDF"}</span>
-                                </label>
-                              </div>
-
+                            {/* Submission Action Panel */}
+                            <div className="flex flex-col md:flex-row items-center justify-end gap-4 pt-4 border-t border-slate-100">
                               <div className="flex items-center gap-2 w-full md:w-auto">
                                 {editingQuoteId && (
                                   <button 
@@ -3488,8 +3454,7 @@ export default function JobCardManager({
                                   </button>
                                 )}
                                 <button 
-                                  type="button" 
-                                  onClick={handleSubmitQuote} 
+                                  type="submit" 
                                   disabled={submittingQuote || !quoteVendorName || !quoteAmount} 
                                   className="flex-1 md:flex-none h-11 px-8 bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
                                 >
@@ -3498,7 +3463,7 @@ export default function JobCardManager({
                                 </button>
                               </div>
                             </div>
-                          </div>
+                          </form>
                         </div>
                       </div>
 
@@ -3539,8 +3504,7 @@ export default function JobCardManager({
                                     <th className="px-4 py-5 border-r border-slate-800 text-white">Date</th>
                                     <th className="px-4 py-5 border-r border-slate-800 text-white">Raw Quote</th>
                                     <th className="px-4 py-5 border-r border-slate-800 text-white">INR Value</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Breakdown</th>
-                                    <th className="px-4 py-5 text-center">Executive Command</th>
+                                    <th className="px-4 py-5 text-center text-white">Actions</th>
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 font-bold uppercase">
@@ -3606,32 +3570,8 @@ export default function JobCardManager({
                                             ₹{inrVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                                           </div>
                                         </td>
-                                        <td className="px-4 py-5 border-r border-slate-100">
-                                          {q.subCosts && q.subCosts.length > 0 ? (
-                                            <div className="flex flex-wrap gap-1 max-w-[160px]">
-                                              {q.subCosts.map((sub, sIdx) => (
-                                                <span key={sIdx} className="bg-white border border-slate-900 text-[8px] font-black text-slate-950 px-2 py-0.5 rounded-lg shadow-xs" title={sub.description}>
-                                                  {sub.category}: {sub.amount}
-                                                </span>
-                                              ))}
-                                            </div>
-                                          ) : (
-                                            <span className="text-slate-950 text-[8px] font-black italic tracking-widest">Inclusive</span>
-                                          )}
-                                        </td>
                                         <td className="px-4 py-5">
                                           <div className="flex items-center justify-center gap-1.5">
-                                            <button
-                                              onClick={() => handleSelectWinningQuote(q)}
-                                              className={`h-9 px-4 rounded-xl text-[9px] font-black uppercase tracking-widest transition shadow-sm active:scale-95 ${
-                                                isWinning 
-                                                  ? "bg-emerald-600 text-white ring-4 ring-emerald-500/20" 
-                                                  : "bg-slate-950 text-white hover:bg-orange-600"
-                                              }`}
-                                            >
-                                              {isWinning ? "✓ Selected" : "Direct Approve"}
-                                            </button>
-                                            
                                             {q.quoteFileUrl && (
                                               <a href={q.quoteFileUrl} target="_blank" rel="noreferrer" className="w-9 h-9 border border-slate-300 flex items-center justify-center rounded-xl text-slate-900 hover:text-orange-600 hover:border-orange-500 transition bg-white" title="View Document">
                                                 <FileText className="w-4 h-4" />
@@ -3659,11 +3599,11 @@ export default function JobCardManager({
                       <div className="border-t border-slate-100 pt-6 flex justify-end">
                         <button
                           onClick={handleSendForApproval}
-                          disabled={!selectedCard.winningQuoteId}
+                          disabled={selectedCard.quotes.length === 0}
                           className="px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-full transition flex items-center gap-2"
                         >
                           <Send className="w-4 h-4 text-orange-500" />
-                          <span>Request Workflow Approval</span>
+                          <span>Authenticate &amp; Send for Approval</span>
                         </button>
                       </div>
 
@@ -3685,20 +3625,20 @@ export default function JobCardManager({
                           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
                             <table className="w-full text-left border-collapse">
                               <thead>
-                                <tr className="bg-slate-50 text-slate-700 text-[9px] font-black uppercase tracking-widest border-b border-slate-250">
-                                  <th className="px-4 py-4 border-r border-slate-200">ID</th>
-                                  <th className="px-4 py-4 border-r border-slate-200">Vendor</th>
-                                  <th className="px-4 py-4 border-r border-slate-200">Agent</th>
-                                  <th className="px-4 py-4 border-r border-slate-200">Airline</th>
-                                  <th className="px-4 py-4 border-r border-slate-200">Sector</th>
-                                  <th className="px-4 py-4 border-r border-slate-200">Layover</th>
-                                  <th className="px-4 py-4 border-r border-slate-200">Date</th>
-                                  <th className="px-4 py-4 border-r border-slate-200">Raw Cost</th>
-                                  <th className="px-4 py-4 border-r border-slate-200">INR Equivalent</th>
+                                <tr className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest border-b border-slate-800">
+                                  <th className="px-4 py-4 border-r border-slate-700">ID</th>
+                                  <th className="px-4 py-4 border-r border-slate-700">Vendor</th>
+                                  <th className="px-4 py-4 border-r border-slate-700">Agent</th>
+                                  <th className="px-4 py-4 border-r border-slate-700">Airline</th>
+                                  <th className="px-4 py-4 border-r border-slate-700">Sector</th>
+                                  <th className="px-4 py-4 border-r border-slate-700">Layover</th>
+                                  <th className="px-4 py-4 border-r border-slate-700">Date</th>
+                                  <th className="px-4 py-4 border-r border-slate-700">Raw Cost</th>
+                                  <th className="px-4 py-4 border-r border-slate-700">INR Equivalent</th>
                                   <th className="px-4 py-4 text-center">Final Selection</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-slate-100 font-bold uppercase text-[10px]">
+                              <tbody className="divide-y divide-slate-100 font-bold uppercase text-[12px]">
                                   {selectedCard.quotes.map(q => {
                                     const isWinning = selectedCard.winningQuoteId === q.id;
                                     const lowestIdx = top3QuoteIds.indexOf(q.id);
@@ -3718,52 +3658,69 @@ export default function JobCardManager({
                                     return (
                                       <tr key={q.id} className={`transition-colors ${isWinning ? "bg-emerald-50/30" : "bg-white"}`}>
                                         <td className="px-4 py-5 border-r border-slate-100">
-                                          <div className="flex items-center gap-2">
-                                            <span className="bg-slate-200 text-slate-950 font-mono text-[8px] px-1.5 py-0.5 rounded-full">{q.id}</span>
-                                            {lRank && (
-                                              <span className={`px-1 py-0.5 rounded text-[8px] font-black ${
-                                                lRank === 'L1' ? 'bg-emerald-600 text-white' : 
-                                                lRank === 'L2' ? 'bg-blue-600 text-white' : 
-                                                'bg-slate-600 text-white'
-                                              }`}>
-                                                {lRank}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </td>
-                                      <td className="px-4 py-5 border-r border-slate-100">
-                                        <div className="text-slate-950 font-black tracking-tight flex items-center gap-1.5">
-                                          {q.vendorName}
-                                          {isWinning && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Selected Proposal" />}
-                                          {isCheapest && <div className="w-1.5 h-1.5 rounded-full bg-orange-500" title="Lowest Bid" />}
+                                        <div className="flex items-center gap-2">
+                                          <span className="bg-slate-200 text-slate-950 font-mono text-[10px] px-1.5 py-0.5 rounded-full">{q.id}</span>
+                                          {lRank && (
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                                              lRank === 'L1' ? 'bg-emerald-600 text-white' : 
+                                              lRank === 'L2' ? 'bg-blue-600 text-white' : 
+                                              'bg-slate-600 text-white'
+                                            }`}>
+                                              {lRank}
+                                            </span>
+                                          )}
                                         </div>
                                       </td>
-                                      <td className="px-4 py-5 border-r border-slate-100 text-slate-950">
-                                        {q.agentName || "Direct"}
-                                      </td>
-                                      <td className="px-4 py-5 border-r border-slate-100 text-slate-950">
-                                        {q.airline || "Direct"}
-                                      </td>
-                                      <td className="px-4 py-5 border-r border-slate-100 text-slate-950 whitespace-normal">
-                                        {q.sector || selectedCard.destination || "N/A"}
-                                      </td>
-                                      <td className="px-4 py-5 border-r border-slate-100 text-slate-950">
-                                        {q.layover || "0"}H
-                                      </td>
-                                      <td className="px-4 py-5 border-r border-slate-100 text-slate-950">
-                                        {q.travelDate || "Immediate"}
-                                      </td>
-                                      <td className="px-4 py-5 border-r border-slate-100 text-slate-950 font-mono">
-                                        {q.amount} {q.currency}
-                                      </td>
-                                      <td className="px-4 py-5 border-r border-slate-100 bg-slate-50/30">
-                                        <span className="text-slate-950 font-black font-mono">₹{inrVal.toLocaleString('en-IN')}</span>
-                                      </td>
+                                    <td className="px-4 py-5 border-r border-slate-100">
+                                      <div className="text-slate-900 font-black tracking-tight flex items-center gap-1.5">
+                                        {q.vendorName}
+                                        {isWinning && <div className="w-2 h-2 rounded-full bg-emerald-500" title="Selected Proposal" />}
+                                        {isCheapest && <div className="w-2 h-2 rounded-full bg-orange-500" title="Lowest Bid" />}
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold">
+                                      {q.agentName || "Direct"}
+                                    </td>
+                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold">
+                                      {q.airline || "Direct"}
+                                    </td>
+                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold whitespace-normal">
+                                      {q.sector || selectedCard.destination || "N/A"}
+                                    </td>
+                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold">
+                                      {q.layover || "0"}H
+                                    </td>
+                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold">
+                                      {q.travelDate || "Immediate"}
+                                    </td>
+                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-black font-mono">
+                                      {q.amount} {q.currency}
+                                    </td>
+                                    <td className="px-4 py-5 border-r border-slate-100 bg-emerald-50/20">
+                                      <span className="text-slate-900 font-black font-mono">₹{inrVal.toLocaleString('en-IN')}</span>
+                                    </td>
                                       <td className="px-4 py-5 text-center">
                                         {isWinning ? (
-                                          <span className="bg-emerald-600 text-white px-4 py-1.5 rounded-xl text-[9px] font-black tracking-widest inline-block shadow-sm">SELECTED</span>
+                                          <div className="flex flex-col items-center gap-1.5">
+                                            <span className="bg-emerald-600 text-white px-4 py-1.5 rounded-xl text-[9px] font-black tracking-widest inline-block shadow-sm">✓ SELECTED</span>
+                                            {activeRole === 'VP_COMMERCIAL' && selectedCard.commercialApprovalStatus !== 'APPROVED' && (
+                                              <button
+                                                onClick={() => handleSelectWinningQuote(q)}
+                                                className="text-[8px] text-rose-500 hover:text-rose-700 font-black uppercase tracking-wider underline"
+                                              >
+                                                Deselect
+                                              </button>
+                                            )}
+                                          </div>
+                                        ) : activeRole === 'VP_COMMERCIAL' && selectedCard.commercialApprovalStatus !== 'APPROVED' ? (
+                                          <button
+                                            onClick={() => handleSelectWinningQuote(q)}
+                                            className="h-8 px-3 bg-slate-900 hover:bg-orange-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition active:scale-95 shadow-sm"
+                                          >
+                                            Select This Quote
+                                          </button>
                                         ) : (
-                                          <span className="text-slate-900 text-[9px] font-black opacity-30 select-none">NOT SELECTED</span>
+                                          <span className="text-slate-900 text-[9px] font-black opacity-25 select-none">—</span>
                                         )}
                                       </td>
                                     </tr>
@@ -3908,23 +3865,30 @@ export default function JobCardManager({
                           ) : (
                             <div className="space-y-2 pt-2">
                               {activeRole === 'VP_COMMERCIAL' ? (
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => handleL2CommercialDecision('APPROVED')}
-                                    disabled={submittingApproval}
-                                    id="btn-l2-approve"
-                                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider rounded-lg transition shadow-xs"
-                                  >
-                                    Authorize Signoff
-                                  </button>
-                                  <button
-                                    onClick={() => handleL2CommercialDecision('REJECTED')}
-                                    disabled={submittingApproval}
-                                    id="btn-l2-reject"
-                                    className="py-2.5 px-3 bg-rose-50 border border-rose-200 text-rose-700 font-black text-[9px] uppercase tracking-wider rounded-lg hover:bg-rose-100 transition whitespace-nowrap"
-                                  >
-                                    Reject L2
-                                  </button>
+                                <div className="space-y-2">
+                                  {!selectedCard.winningQuoteId && (
+                                    <p className="text-[9px] text-blue-700 bg-blue-50 border border-blue-200 p-2.5 rounded-lg font-black uppercase tracking-wider text-center">
+                                      ☝️ Select a quote from the comparison table above to enable authorization
+                                    </p>
+                                  )}
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => handleL2CommercialDecision('APPROVED')}
+                                      disabled={submittingApproval || !selectedCard.winningQuoteId}
+                                      id="btn-l2-approve"
+                                      className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-[9px] uppercase tracking-wider rounded-lg transition shadow-xs"
+                                    >
+                                      {selectedCard.winningQuoteId ? "Authorize Signoff" : "Select Quote First →"}
+                                    </button>
+                                    <button
+                                      onClick={() => handleL2CommercialDecision('REJECTED')}
+                                      disabled={submittingApproval}
+                                      id="btn-l2-reject"
+                                      className="py-2.5 px-3 bg-rose-50 border border-rose-200 text-rose-700 font-black text-[9px] uppercase tracking-wider rounded-lg hover:bg-rose-100 transition whitespace-nowrap"
+                                    >
+                                      Reject L2
+                                    </button>
+                                  </div>
                                 </div>
                               ) : (
                                 <p className="text-[9px] text-orange-600 bg-orange-50 p-2.5 border border-orange-100 rounded-lg font-black uppercase tracking-wider text-center" title="Toggle active role to L2 VP Action">
@@ -3964,114 +3928,187 @@ export default function JobCardManager({
                       })()}
 
                       {/* FORMAL WORK ORDER DISPLAY */}
-                      {selectedCard.commercialApprovalStatus === 'APPROVED' && (
-                        <div className="bg-white border-2 border-slate-900 rounded-3xl p-6 shadow-md space-y-6 text-left relative overflow-hidden my-4">
-                          {/* Top-right status watermark */}
-                          <div className="absolute top-4 right-4 bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">
-                            AUTHORIZED WORKORDER
-                          </div>
+                      {selectedCard.commercialApprovalStatus === 'APPROVED' && (() => {
+                        const woWinQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+                        const woIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
+                        const woInrVal = woWinQuote ? convertToINR(woWinQuote.amount, woWinQuote.currency) : 0;
+                        const travelType = woIndent?.travel_type || "FLIGHT";
+                        const seatPref = woIndent?.seat_preference === "OTHER" ? (woIndent?.seat_preference_other || "Other") : (woIndent?.seat_preference || "N/A");
+                        const mealPref = woIndent?.meal_preference === "OTHER" ? (woIndent?.meal_preference_other || "Other") : (woIndent?.meal_preference || "N/A");
+                        return (
+                          <div className="bg-white border-2 border-slate-900 rounded-3xl p-6 shadow-md space-y-5 text-left relative overflow-hidden my-4">
+                            {/* Top-right status watermark */}
+                            <div className="absolute top-4 right-4 bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">
+                              AUTHORIZED WORKORDER
+                            </div>
 
-                          {/* Letterhead Header */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b-2 border-slate-100">
-                            <div className="flex items-center gap-3">
-                              <img
-                                src="https://res.cloudinary.com/dn6sk8mqh/image/upload/v1779866397/Gemini_Generated_Image_c6yvaxc6yvaxc6yv_hr5guu.png"
-                                alt="Hemraj Industries"
-                                className="w-12 h-12 object-contain rounded-lg border border-slate-200"
-                              />
-                              <div>
-                                <h3 className="text-sm font-black uppercase tracking-wider text-slate-905 leading-none">Hemraj Industries</h3>
-                                <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block mt-1">Corporate Travel & Procurement</span>
+                            {/* Letterhead Header */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b-2 border-slate-100">
+                              <div className="flex items-center gap-3">
+                                <img
+                                  src="https://res.cloudinary.com/dn6sk8mqh/image/upload/v1779866397/Gemini_Generated_Image_c6yvaxc6yvaxc6yv_hr5guu.png"
+                                  alt="Hemraj Industries"
+                                  className="w-12 h-12 object-contain rounded-lg border border-slate-200"
+                                />
+                                <div>
+                                  <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 leading-none">Hemraj Industries</h3>
+                                  <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block mt-1">Corporate Travel &amp; Procurement</span>
+                                </div>
+                              </div>
+                              <div className="text-left sm:text-right font-mono text-[9px] text-slate-400 font-black">
+                                <div>REF ID: WO-{selectedCard.id}</div>
+                                <div>DATE: {selectedCard.commercialApprovedAt ? new Date(selectedCard.commercialApprovedAt).toLocaleDateString() : new Date().toLocaleDateString()}</div>
                               </div>
                             </div>
-                            <div className="text-left sm:text-right font-mono text-[9px] text-slate-400 font-black">
-                              <div>REF ID: WO-{selectedCard.id}</div>
-                              <div>DATE: {selectedCard.commercialApprovedAt ? new Date(selectedCard.commercialApprovedAt).toLocaleDateString() : new Date().toLocaleDateString()}</div>
-                            </div>
-                          </div>
 
-                          {/* Work Order Title */}
-                          <div className="text-center py-2 bg-slate-50 border border-slate-200 rounded-xl">
-                            <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-900 font-serif">TRAVEL WORK ORDER AUTHORIZATION</h4>
-                          </div>
-
-                          {/* Formal Body Text */}
-                          <p className="text-[11px] text-slate-705 leading-relaxed font-sans">
-                            Dear Sourcing Partner / Operations Coordinator,
-                            <br/><br/>
-                            We hereby authorize the ticket issuance and booking execution for the travel request detailed below. This order is issued under the authority of the VP Commercial and is subject to the approved procurement guidelines and cost thresholds. Please proceed with the ticketing operations immediately.
-                          </p>
-
-                          {/* Details Table */}
-                          <div className="border border-slate-200 rounded-2xl overflow-hidden">
-                            <table className="w-full text-[10px] text-left divide-y divide-slate-200">
-                              <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                                <tr className="bg-slate-50/50">
-                                  <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-150 w-1/3">Traveler Details</td>
-                                  <td className="px-4 py-2.5 text-slate-900 font-bold">{selectedCard.travelerName} ({resolvedEmployee?.employee_code || "N/A"})</td>
-                                </tr>
-                                <tr>
-                                  <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-150">Sector / Route</td>
-                                  <td className="px-4 py-2.5 text-slate-900 font-bold">{selectedCard.destination}</td>
-                                </tr>
-                                <tr className="bg-slate-50/50">
-                                  <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-150">Sourced Agency</td>
-                                  <td className="px-4 py-2.5 text-slate-900 font-bold uppercase">{selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId)?.vendorName || "TBD"}</td>
-                                </tr>
-                                <tr>
-                                  <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-150">Approved Budget</td>
-                                  <td className="px-4 py-2.5 text-emerald-700 font-bold">
-                                    {(() => {
-                                      const win = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
-                                      return win ? `${win.amount} ${win.currency}` : "N/A";
-                                    })()}
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </div>
-
-                          {/* Directive statement */}
-                          <div className="p-3.5 bg-amber-50/40 border border-amber-200 rounded-2xl text-[10px] text-slate-700 leading-snug font-serif italic">
-                            "You are hereby authorized to proceed with the ticket and voucher bookings for the above traveler. Ensure all booking files, PNR vouchers, and tax invoices are uploaded directly to this job card for subsequent financial reconciliation."
-                          </div>
-
-                          {/* Send Webhook Option */}
-                          <div className="pt-4 border-t border-slate-150 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-                              <span>Authorized VP:</span>
-                              <span className="text-slate-700">{selectedCard.commercialApprovedBy || "VP Commercial Admin"}</span>
+                            {/* Work Order Title */}
+                            <div className="text-center py-2 bg-slate-50 border border-slate-200 rounded-xl">
+                              <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-900">TRAVEL WORK ORDER AUTHORIZATION</h4>
                             </div>
 
-                            <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                onClick={handleDownloadWorkOrder}
-                                className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition shadow-md shadow-orange-600/10 cursor-pointer flex items-center gap-1.5"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                                <span>Download WO</span>
-                              </button>
+                            {/* Formal Body Text */}
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              Dear Sourcing Partner / Operations Coordinator,
+                              <br /><br />
+                              We hereby authorize the ticket issuance and booking execution for the travel request detailed below. This order is issued under the authority of the VP Commercial and is subject to the approved procurement guidelines and cost thresholds. Please proceed with the ticketing operations immediately.
+                            </p>
 
-                              {workOrderSentMessage ? (
-                                <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-250 uppercase tracking-wider">
-                                  ✓ {workOrderSentMessage}
-                                </span>
-                              ) : (
+                            {/* Core Details Table */}
+                            <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                              <table className="w-full text-[10px] text-left divide-y divide-slate-200">
+                                <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                                  <tr className="bg-slate-50/50">
+                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200 w-1/3">Traveler Details</td>
+                                    <td className="px-4 py-2.5 text-slate-900 font-bold">{selectedCard.travelerName} ({resolvedEmployee?.employee_code || "N/A"})</td>
+                                  </tr>
+                                  <tr>
+                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Sector / Route</td>
+                                    <td className="px-4 py-2.5 text-slate-900 font-bold">{selectedCard.destination}</td>
+                                  </tr>
+                                  <tr className="bg-slate-50/50">
+                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Expected Travel Date</td>
+                                    <td className="px-4 py-2.5 text-slate-900 font-bold">{woWinQuote?.travelDate || woIndent?.travel_date || "Immediate"}</td>
+                                  </tr>
+                                  <tr>
+                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Sourced Agency</td>
+                                    <td className="px-4 py-2.5 text-slate-900 font-bold uppercase">{woWinQuote?.vendorName || "TBD"}</td>
+                                  </tr>
+                                  <tr className="bg-slate-50/50">
+                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Approved Budget</td>
+                                    <td className="px-4 py-2.5 font-bold">
+                                      <span className="text-emerald-700">{woWinQuote ? `${woWinQuote.amount} ${woWinQuote.currency}` : "N/A"}</span>
+                                      {woWinQuote && woWinQuote.currency !== "INR" && (
+                                        <span className="ml-2 text-slate-500 text-[9px]">(≈ ₹{woInrVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })})</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Travel Preferences Section */}
+                            {woIndent && (
+                              <div>
+                                <h5 className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Travel Preferences &amp; Specifics</h5>
+                                <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                                  <table className="w-full text-[10px] text-left divide-y divide-slate-200">
+                                    <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                                      <tr className="bg-slate-50/50">
+                                        <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200 w-1/3">Transport Category</td>
+                                        <td className="px-4 py-2.5 text-slate-900 font-bold uppercase">{travelType}</td>
+                                      </tr>
+                                      {(travelType === "DOMESTIC" || travelType === "INTERNATIONAL") && (<>
+                                        <tr>
+                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Seat Preference</td>
+                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{seatPref}</td>
+                                        </tr>
+                                        <tr className="bg-slate-50/50">
+                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Meal Preference</td>
+                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{mealPref}</td>
+                                        </tr>
+                                        <tr>
+                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Luggage Allowance</td>
+                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{woIndent.luggage || "Standard / None"}</td>
+                                        </tr>
+                                      </>)}
+                                      {travelType === "TRAIN" && (<>
+                                        <tr>
+                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Preferred Class</td>
+                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{resolvedEmployee?.train_preferred_class || "N/A"}</td>
+                                        </tr>
+                                        <tr className="bg-slate-50/50">
+                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Berth Preference</td>
+                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{resolvedEmployee?.train_berth_preference || "N/A"}</td>
+                                        </tr>
+                                        <tr>
+                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Meal Preference</td>
+                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{resolvedEmployee?.train_meal_preference || "N/A"}</td>
+                                        </tr>
+                                      </>)}
+                                      {(travelType === "BUS") && (<>
+                                        <tr>
+                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Seat Preference</td>
+                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{seatPref}</td>
+                                        </tr>
+                                        <tr className="bg-slate-50/50">
+                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Luggage</td>
+                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{woIndent.luggage || "N/A"}</td>
+                                        </tr>
+                                      </>)}
+                                      {travelType === "CAB" && (
+                                        <tr>
+                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Luggage</td>
+                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{woIndent.luggage || "N/A"}</td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Official Directive Note (updated — matches downloadable WO) */}
+                            <div className="p-3.5 bg-amber-50/40 border border-amber-200 rounded-2xl text-[10px] text-slate-700 leading-snug font-serif italic">
+                              NOTE: Booking execution and ticket issuance should only be processed when the official Work Order has been dispatched from official corporate email domains.
+                            </div>
+
+                            {/* Footer: Authorized VP + Download / Send */}
+                            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                              <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                <span>Authorized VP:</span>
+                                <span className="text-slate-700">{selectedCard.commercialApprovedBy || "VP Commercial Admin"}</span>
+                              </div>
+
+                              <div className="flex items-center gap-3">
                                 <button
                                   type="button"
-                                  onClick={handleSendWorkOrder}
-                                  disabled={sendingWorkOrder}
-                                  className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition shadow-md shadow-slate-900/10 cursor-pointer flex items-center gap-2"
+                                  onClick={handleDownloadWorkOrder}
+                                  className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition shadow-md shadow-orange-600/10 cursor-pointer flex items-center gap-1.5"
                                 >
-                                  {sendingWorkOrder ? "Sending..." : "Send Work Order"}
-                                  <ArrowRight className="w-3.5 h-3.5" />
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span>Download WO</span>
                                 </button>
-                              )}
+
+                                {workOrderSentMessage ? (
+                                  <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 uppercase tracking-wider">
+                                    ✓ {workOrderSentMessage}
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={handleSendWorkOrder}
+                                    disabled={sendingWorkOrder}
+                                    className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition shadow-md shadow-slate-900/10 cursor-pointer flex items-center gap-2"
+                                  >
+                                    {sendingWorkOrder ? "Sending..." : "Send Work Order"}
+                                    <ArrowRight className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* WORKSPACE USER REMARKS BOX */}
                       <div className="space-y-2">

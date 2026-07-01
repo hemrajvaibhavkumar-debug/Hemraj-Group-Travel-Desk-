@@ -306,7 +306,6 @@ async function seedDatabaseIfEmpty() {
               quoteFileName: q.quoteFileName || null,
               isWinning: q.isWinning || false,
               created_at: q.created_at,
-              subCosts: q.subCosts ? JSON.parse(JSON.stringify(q.subCosts)) : null,
               airline: q.airline || null,
               sector: q.sector || null,
               layover: q.layover || null,
@@ -884,6 +883,14 @@ app.put("/api/job-cards/:id", async (req, res) => {
       });
 
       if (quotesData && Array.isArray(quotesData)) {
+        const quoteIds = quotesData.map(q => q.id);
+        await tx.jobCardQuote.deleteMany({
+          where: {
+            jobCardId: id,
+            id: { notIn: quoteIds }
+          }
+        });
+
         for (const q of quotesData) {
           await tx.jobCardQuote.upsert({
             where: { id: q.id },
@@ -895,7 +902,6 @@ app.put("/api/job-cards/:id", async (req, res) => {
               quoteFileName: q.quoteFileName,
               isWinning: q.isWinning,
               created_at: q.created_at || new Date().toISOString(),
-              subCosts: q.subCosts ? JSON.parse(JSON.stringify(q.subCosts)) : undefined,
               airline: q.airline,
               sector: q.sector,
               layover: q.layover,
@@ -914,7 +920,6 @@ app.put("/api/job-cards/:id", async (req, res) => {
               quoteFileName: q.quoteFileName,
               isWinning: q.isWinning || false,
               created_at: q.created_at || new Date().toISOString(),
-              subCosts: q.subCosts ? JSON.parse(JSON.stringify(q.subCosts)) : undefined,
               airline: q.airline,
               sector: q.sector,
               layover: q.layover,
@@ -945,6 +950,9 @@ app.put("/api/job-cards/:id", async (req, res) => {
         where: { id },
         include: { quotes: true, auditLogs: true }
       });
+    }, {
+      maxWait: 15000,
+      timeout: 30000
     });
 
     return res.json({ success: true, jobCard: updated });
@@ -1032,6 +1040,9 @@ app.post("/api/job-cards/:id/reschedule", async (req, res) => {
       });
 
       return { parent, child };
+    }, {
+      maxWait: 15000,
+      timeout: 30000
     });
 
     return res.status(201).json({

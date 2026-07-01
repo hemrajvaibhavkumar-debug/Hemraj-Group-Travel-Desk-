@@ -100,15 +100,6 @@ export interface TravelIndent {
 
 export type JobCardStage = 'QUOTATION' | 'APPROVAL' | 'BOOKING' | 'FINANCE' | 'RECONCILIATION' | 'CLOSED';
 
-export interface QuoteSubCost {
-  category: "FLIGHT" | "TRAIN" | "HOTEL" | "CAB" | "OTHER";
-  description: string;
-  amount: number;
-  airline?: string;
-  sector?: string;
-  layover?: string;
-}
-
 export interface JobCardQuote {
   id: string;
   vendorName: string;
@@ -118,7 +109,6 @@ export interface JobCardQuote {
   quoteFileName?: string;
   isWinning?: boolean;
   created_at: string;
-  subCosts?: QuoteSubCost[];
   airline?: string;
   sector?: string;
   layover?: string;

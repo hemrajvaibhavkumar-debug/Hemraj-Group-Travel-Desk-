@@ -47,8 +47,50 @@ export default function App() {
   const senderEmail = rbacSettings?.senderEmail || "travel-desk@hemraj-group.com";
   const ccRecipients = rbacSettings?.ccRecipients || "compliance-cc@hemraj-group.com, travel-archive@hemraj-group.com";
 
-  // Views / Navigation Tabs
-  const [currentView, setCurrentView] = useState<"dashboard" | "indents" | "create" | "jobcards" | "passports" | "settings" | "employees" | "flight-search">("dashboard");
+  // Views / Navigation Tabs synchronized with window.location.hash
+  const parseHash = () => {
+    const hash = window.location.hash || "#/dashboard";
+    if (!hash.startsWith("#/")) {
+      return { view: "dashboard" as const, id: null };
+    }
+    const pathPart = hash.slice(2);
+    const parts = pathPart.split("/");
+    const view = parts[0];
+    const id = parts[1] || null;
+
+    const validViews = ["dashboard", "indents", "create", "jobcards", "passports", "settings", "employees", "flight-search"] as const;
+    if (validViews.includes(view as any)) {
+      return { view: view as typeof validViews[number], id };
+    }
+    return { view: "dashboard" as const, id: null };
+  };
+
+  const [route, setRoute] = useState(() => parseHash());
+  const currentView = route.view;
+  const currentId = route.id;
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setRoute(parseHash());
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    if (!window.location.hash) {
+      window.location.hash = "#/dashboard";
+    }
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  const setCurrentView = (view: any) => {
+    window.location.hash = `#/${view}`;
+  };
+
+  const handleSelectCard = (id: string | null) => {
+    if (id) {
+      window.location.hash = `#/jobcards/${id}`;
+    } else {
+      window.location.hash = `#/jobcards`;
+    }
+  };
   const [activeTab, setActiveTab] = usePersistedState<'ALL' | 'QUOTATION' | 'APPROVAL' | 'BOOKING' | 'FINANCE' | 'RECONCILIATION' | 'CLOSED' | 'VOIDED'>('job-card-active-tab', 'ALL');
   const [kanbanView, setKanbanView] = usePersistedState<boolean>('job-card-list-default-view', false);
 
@@ -740,6 +782,8 @@ export default function App() {
                     setActiveTab={setActiveTab}
                     kanbanView={kanbanView}
                     setKanbanView={setKanbanView}
+                    selectedCardId={currentId}
+                    onSelectCard={handleSelectCard}
                     forexRates={forexRates}
                   />
                 ) : currentView === "passports" ? (
