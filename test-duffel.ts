@@ -1,5 +1,12 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 async function testDuffel() {
-  const token = "duffel_test_piRwQAAO6LvuIicEXDJbpV1JXrsx9QV5qhpSrSuFL0t";
+  const token = process.env.DUFFEL_API_KEY;
+  if (!token) {
+    console.error("Error: DUFFEL_API_KEY is not defined in the environment variables / .env file.");
+    return;
+  }
   const url = "https://api.duffel.com/air/offer_requests";
   
   console.log("Sending POST offer request to Duffel...");
