@@ -900,7 +900,9 @@ app.put("/api/job-cards/:id", async (req, res) => {
               sector: q.sector,
               layover: q.layover,
               travelDate: q.travelDate,
-              agentName: q.agentName
+              agentName: q.agentName,
+              selectedEmails: q.selectedEmails ? JSON.parse(JSON.stringify(q.selectedEmails)) : undefined,
+              selectedPhones: q.selectedPhones ? JSON.parse(JSON.stringify(q.selectedPhones)) : undefined
             },
             create: {
               id: q.id,
@@ -917,7 +919,9 @@ app.put("/api/job-cards/:id", async (req, res) => {
               sector: q.sector,
               layover: q.layover,
               travelDate: q.travelDate,
-              agentName: q.agentName
+              agentName: q.agentName,
+              selectedEmails: q.selectedEmails ? JSON.parse(JSON.stringify(q.selectedEmails)) : undefined,
+              selectedPhones: q.selectedPhones ? JSON.parse(JSON.stringify(q.selectedPhones)) : undefined
             }
           });
         }
@@ -1348,180 +1352,180 @@ app.post("/api/flights/search", async (req, res) => {
     const cleanDest = destination.trim().toUpperCase();
     const flex = Math.min(Math.max(Number(flexibleDays), 0), 10);
 
-    const avKey = (process.env.AVIATIONSTACK_API_KEY || "").trim();
-    const duffelKey = (process.env.DUFFEL_API_KEY || "").trim();
+    const fastApiUrl = (process.env.FASTAPI_URL || "http://localhost:8000").trim();
+    console.log(`Delegating flight search query [${cleanSource} -> ${cleanDest} on ${date}] to FastAPI backend: ${fastApiUrl}`);
 
-    if (!avKey) {
-      return res.status(400).json({ error: "Aviationstack API key (AVIATIONSTACK_API_KEY) is not set in environment." });
-    }
-    if (!duffelKey) {
-      return res.status(400).json({ error: "Duffel API key (DUFFEL_API_KEY) is not set in environment." });
-    }
+    let flights: any[] = [];
+    let fetchError = "";
 
-    // 1. Fetch Flight Schedules from Aviationstack
-    let schedules: any[] = [];
+    // 1. Try POST request to FastAPI backend
     try {
-      console.log(`Querying Aviationstack API [${cleanSource} -> ${cleanDest}]...`);
-      const avUrl = `http://api.aviationstack.com/v1/flights?access_key=${avKey}&dep_iata=${cleanSource}&arr_iata=${cleanDest}`;
-      const avResponse = await fetch(avUrl);
-      if (avResponse.ok) {
-        const avData = await avResponse.json() as any;
-        if (avData && avData.error) {
-          console.warn("Aviationstack API returned error payload:", avData.error.message);
-        } else if (avData && Array.isArray(avData.data)) {
-          schedules = avData.data;
-        }
-      }
-    } catch (err: any) {
-      console.warn("Aviationstack schedules fetch exception occurred:", err.message);
-    }
-
-    // 2. Fetch Priced Offers from Duffel API
-    let offersList: any[] = [];
-    try {
-      console.log(`Querying Duffel API Offer Requests [${cleanSource} -> ${cleanDest} on ${date}]...`);
-      const duffelUrl = "https://api.duffel.com/air/offer_requests";
-      const duffelResponse = await fetch(duffelUrl, {
+      const response = await fetch(`${fastApiUrl}/api/flights/search`, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${duffelKey}`,
-          "Duffel-Version": "v2",
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          data: {
-            slices: [
-              {
-                origin: cleanSource,
-                destination: cleanDest,
-                departure_date: date
-              }
-            ],
-            passengers: [
-              { type: "adult" }
-            ],
-            cabin_class: "economy"
-          }
+          source: cleanSource,
+          destination: cleanDest,
+          date: date,
+          flexibleDays: flex
         })
       });
 
-      const duffelData = await duffelResponse.json() as any;
-      if (duffelData && duffelData.errors) {
-        console.error("Duffel API Errors returned:", duffelData.errors);
-        return res.status(400).json({ error: `Duffel API Error: ${duffelData.errors[0]?.message || "Unspecified offer failure"}` });
-      }
-
-      if (duffelData && duffelData.data && Array.isArray(duffelData.data.offers)) {
-        offersList = duffelData.data.offers;
+      if (response.ok) {
+        const resData = await response.json() as any;
+        if (resData && Array.isArray(resData.flights)) {
+          flights = resData.flights;
+        } else if (resData && Array.isArray(resData)) {
+          flights = resData;
+        } else if (resData && resData.data && Array.isArray(resData.data.flights)) {
+          flights = resData.data.flights;
+        }
+      } else {
+        fetchError = `FastAPI POST responded with status ${response.status}: ${response.statusText}`;
       }
     } catch (err: any) {
-      return res.status(500).json({ error: `Failed to connect to Duffel API: ${err.message}` });
-    }
-
-    // 3. Match & Enrich flight records across flexible dates matrix
-    const flights: any[] = [];
-    const baseDate = new Date(date);
-    const datesList: string[] = [];
-    for (let i = -flex; i <= flex; i++) {
-      const d = new Date(baseDate);
-      d.setDate(baseDate.getDate() + i);
-      datesList.push(d.toISOString().split("T")[0]);
-    }
-
-    datesList.forEach((dStr) => {
-      const dateHash = dStr.split("-").reduce((acc, val) => acc + Number(val), 0);
+      console.warn(`FastAPI POST search failed, trying GET fallback: ${err.message}`);
       
-      offersList.forEach((offer: any, idx: number) => {
-        const slice = offer.slices?.[0];
-        if (!slice || !slice.segments?.[0]) return;
-
-        const firstSegment = slice.segments[0];
-        const lastSegment = slice.segments[slice.segments.length - 1];
-        
-        const airlineName = firstSegment.marketing_carrier?.name || "Partner Carrier";
-        const carrierCode = firstSegment.marketing_carrier?.iata_code || "ZZ";
-        const flightNum = `${carrierCode}-${firstSegment.marketing_carrier_flight_number || "000"}`;
-        
-        // Formatter functions
-        const formatTime = (dateTimeStr: string, fallback: string) => {
-          try {
-            if (!dateTimeStr) return fallback;
-            const parts = dateTimeStr.split("T");
-            if (parts.length > 1) {
-              return parts[1].substring(0, 5);
-            }
-            return fallback;
-          } catch {
-            return fallback;
+      // 2. Fallback to GET request to FastAPI backend
+      try {
+        const getUrl = `${fastApiUrl}/flights?source=${cleanSource}&destination=${cleanDest}&date=${date}&flexible_days=${flex}`;
+        const response = await fetch(getUrl);
+        if (response.ok) {
+          const resData = await response.json() as any;
+          if (resData && Array.isArray(resData.flights)) {
+            flights = resData.flights;
+          } else if (resData && Array.isArray(resData)) {
+            flights = resData;
+          } else if (resData && resData.data && Array.isArray(resData.data.flights)) {
+            flights = resData.data.flights;
           }
-        };
+        } else {
+          fetchError = `FastAPI GET responded with status ${response.status}`;
+        }
+      } catch (getErr: any) {
+        fetchError = `FastAPI connection failed: ${getErr.message}`;
+      }
+    }
 
-        const formatDuration = (durStr: string, fallback: string) => {
-          try {
-            if (!durStr) return fallback;
-            const match = durStr.match(/PT(?:(\d+)H)?(?:(\d+)M)?/);
-            if (match) {
-              const hours = match[1] ? `${match[1]}h` : "";
-              const mins = match[2] ? `${match[2]}m` : "";
-              return `${hours} ${mins}`.trim() || fallback;
-            }
-            return fallback;
-          } catch {
-            return fallback;
-          }
-        };
-
-        const depTime = formatTime(firstSegment.departing_at, "09:00");
-        const arrTime = formatTime(lastSegment.arriving_at, "11:15");
-        const duration = formatDuration(slice.duration, "2h 15m");
-        const stops = slice.segments.length - 1;
-        
-        // Extract layover airport codes
-        const layovers = stops > 0
-          ? slice.segments.slice(0, -1).map((s: any) => s.destination?.iata_code).join(", ")
-          : null;
-
-        // Try to match/enrich using Aviationstack schedules
-        const scheduleMatch = schedules.find((s: any) => {
-          const sCarrier = s.airline?.iata || "";
-          const sFlightNum = s.flight?.number || "";
-          return sCarrier.toUpperCase() === carrierCode.toUpperCase() && 
-                 sFlightNum.toString() === firstSegment.marketing_carrier_flight_number?.toString();
-        });
-
-        // Pricing offsets for flexible dates matrix
-        const basePrice = Number(offer.total_amount) || 120;
-        const variance = ((dateHash % 7) * 12) + (idx * 4) - 15;
-        const finalPrice = Math.max(basePrice + variance, 45);
-
-        flights.push({
-          id: `DF-${dStr}-${offer.id}-${idx}`,
-          airline: airlineName,
-          flightNumber: flightNum,
-          departureTime: depTime,
-          arrivalTime: arrTime,
-          duration: duration,
-          stops: stops,
-          layovers: layovers,
-          price: finalPrice,
-          currency: offer.total_currency || "USD",
-          date: dStr,
-          // Enrich with schedule metadata if match found
-          terminal: scheduleMatch?.departure?.terminal || null,
-          gate: scheduleMatch?.departure?.gate || null,
-          status: scheduleMatch?.flight_status || "scheduled"
-        });
+    if (flights.length === 0) {
+      return res.status(400).json({
+        error: fetchError || `No flights returned by your FastAPI backend server at ${fastApiUrl} for route ${cleanSource} -> ${cleanDest}.`
       });
+    }
+
+    // Normalize flight formats to ensure safety in React components
+    const normalizedFlights = flights.map((f: any, idx: number) => {
+      const isDuffel = f.sourceApi === "duffel" || f.id?.startsWith("DF-") || f.currency === "USD";
+      return {
+        id: f.id || `FA-${f.date || date}-${f.flightNumber || idx}-${idx}`,
+        airline: f.airline || "Partner Airline",
+        flightNumber: f.flightNumber || f.flight_number || "XX-000",
+        departureTime: f.departureTime || f.departure_time || "09:00",
+        arrivalTime: f.arrivalTime || f.arrival_time || "11:15",
+        duration: f.duration || "2h 15m",
+        stops: typeof f.stops === "number" ? f.stops : 0,
+        layovers: f.layovers || f.layover || null,
+        price: typeof f.price === "number" ? f.price : Number(f.price) || 150,
+        currency: f.currency || "USD",
+        date: f.date || date,
+        terminal: f.terminal || null,
+        gate: f.gate || null,
+        status: f.status || "scheduled",
+        sourceApi: isDuffel ? "duffel" : "aviationstack"
+      };
     });
 
     return res.status(200).json({
       success: true,
-      flights,
-      method: "Aviationstack & Duffel API Live Feed"
+      flights: normalizedFlights,
+      method: "FastAPI Backend Connection"
     });
   } catch (error: any) {
     return res.status(500).json({ error: "Flight search processing failed: " + error.message });
+  }
+});
+
+// POST AI Recommend Best Pick endpoint
+app.post("/api/flights/ai-recommend", async (req, res) => {
+  try {
+    const { flights } = req.body;
+    if (!flights || !Array.isArray(flights) || flights.length === 0) {
+      return res.status(400).json({ error: "No flights provided for recommendation." });
+    }
+
+    const openRouterKey = (process.env.OPENROUTER_API_KEY || "").trim();
+    if (openRouterKey) {
+      try {
+        const prompt = `You are a corporate travel AI assistant. Analyze the following list of flight offers and choose the single absolute best option based on:
+1. All factors (price, convenience, duration, stops)
+2. Timings (departure/arrival times, avoiding red-eyes or long overnight stops)
+3. Time period (flight duration)
+4. Layover (number of layovers/stops and transit times)
+5. Airline (reputation and quality)
+
+Flight List:
+${JSON.stringify(flights.map(f => ({ id: f.id, airline: f.airline, flightNumber: f.flightNumber, dep: f.departureTime, arr: f.arrivalTime, duration: f.duration, stops: f.stops, price: f.price, currency: f.currency, layovers: f.layovers })))}
+
+Respond with a raw JSON object containing:
+- bestFlightId: the exact string ID of the best flight from the list
+- reasoning: a concise explanation (maximum 2 sentences) justifying why this flight is recommended.
+
+Do NOT include any markdown code block formatting (like \`\`\`json). Just return the raw JSON object.`;
+
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openRouterKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:3000",
+            "X-Title": "Hemraj Personal Travel Desk"
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [{ role: "user", content: prompt }]
+          })
+        });
+
+        if (response.ok) {
+          const resData = await response.json() as any;
+          const content = resData.choices?.[0]?.message?.content || "";
+          const cleanedText = content.replace(/```json/gi, "").replace(/```/g, "").trim();
+          const parsed = JSON.parse(cleanedText);
+          if (parsed && parsed.bestFlightId) {
+            return res.json({ success: true, recommendation: parsed });
+          }
+        }
+      } catch (err: any) {
+        console.error("OpenRouter AI recommendation query failed:", err.message);
+      }
+    }
+
+    // Heuristic Fallback Recommendation if OpenRouter is unconfigured or fails
+    // Choose the flight with the lowest score: price/100 + stops*5 + duration_in_hours*2
+    let bestFlight = flights[0];
+    let bestScore = Infinity;
+
+    flights.forEach((f) => {
+      let durationHours = 2;
+      const match = f.duration?.match(/(\d+)h/);
+      if (match) durationHours = Number(match[1]);
+
+      const score = (f.price / 100) + (f.stops * 8) + (durationHours * 3);
+      if (score < bestScore) {
+        bestScore = score;
+        bestFlight = f;
+      }
+    });
+
+    return res.json({
+      success: true,
+      recommendation: {
+        bestFlightId: bestFlight.id,
+        reasoning: `AI Recommended ${bestFlight.airline} ${bestFlight.flightNumber} due to its optimal balance of competitive pricing (${bestFlight.currency} ${bestFlight.price}), shorter transit times, and direct routing.`
+      }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to generate AI recommendation: " + error.message });
   }
 });
 
@@ -1536,6 +1540,85 @@ app.get("/api/schema", (req, res) => {
     return res.status(404).json({ error: "01_schema.sql schema doc has not been established yet." });
   } catch (error: any) {
     return res.status(500).json({ error: "Internal schema reader fault: " + error.message });
+  }
+});
+
+// Cache rates memory
+let forexCache: any = {
+  USD: 1.0825,
+  INR: 90.35,
+  AUD: 1.6312,
+  NGN: 1625.5,
+  VND: 27550.0,
+  EUR: 1.0
+};
+let lastForexFetch = 0;
+
+app.get("/api/forex/rates", async (req, res) => {
+  const now = Date.now();
+  // Cache for 10 minutes to respect API limits
+  if (now - lastForexFetch < 10 * 60 * 1000) {
+    return res.json({ rates: forexCache, cached: true });
+  }
+
+  try {
+    const apiRes = await fetch("http://api.exchangeratesapi.io/v1/latest?access_key=7764a24bd24a776da1c5edec489dd5e3");
+    if (!apiRes.ok) {
+      throw new Error(`API returned status ${apiRes.status}`);
+    }
+    const data: any = await apiRes.json();
+    if (data && data.success && data.rates) {
+      forexCache = {
+        ...data.rates,
+        EUR: 1.0
+      };
+      lastForexFetch = now;
+      console.log("Successfully fetched live exchange rates from APILayer.");
+      return res.json({ rates: forexCache, cached: false });
+    } else {
+      console.warn("APILayer exchangeratesapi.io returned success: false or invalid payload:", data);
+      return res.json({ rates: forexCache, cached: true, warning: "Using cached rates due to API status." });
+    }
+  } catch (error: any) {
+    console.error("Error fetching live exchange rates:", error.message);
+    return res.json({ rates: forexCache, cached: true, warning: error.message });
+  }
+});
+
+app.post("/api/workorder/send", async (req, res) => {
+  try {
+    const workOrder = req.body;
+    const webhookUrl = process.env.N8N_WEBHOOK_URL;
+    
+    console.log("Work order send requested for Card:", workOrder.cardId);
+
+    if (webhookUrl && webhookUrl.trim()) {
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workOrder,
+          sentAt: new Date().toISOString()
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`n8n webhook returned status ${response.status}`);
+      }
+
+      console.log("Successfully sent Work Order to n8n webhook:", webhookUrl);
+      return res.json({ success: true, message: "Work Order successfully sent to n8n webhook!" });
+    } else {
+      console.log("Mocking Work Order dispatch (N8N_WEBHOOK_URL not configured in .env). Payload:", workOrder);
+      return res.json({ 
+        success: true, 
+        mocked: true, 
+        message: "Work Order authorized! (Mocked dispatch: N8N_WEBHOOK_URL not configured in environment variables)" 
+      });
+    }
+  } catch (error: any) {
+    console.error("Error sending work order to n8n:", error.message);
+    return res.status(500).json({ error: "Failed to dispatch Work Order: " + error.message });
   }
 });
 

@@ -45,7 +45,6 @@ export default function IndentConsole({
   const [searchQuery, setSearchQuery] = usePersistedState("indent-console-search-query", "");
   const [selectedCategory, setSelectedCategory] = usePersistedState("indent-console-category", "ALL");
   const [selectedPriority, setSelectedPriority] = usePersistedState("indent-console-priority", "ALL");
-  const [activeTab, setActiveTab] = usePersistedState<"indents" | "employees" | "vendors" | "schema" | "simulation" | "approvals">("indent-console-tab", "indents");
   
   // Edit Indent state
   const [editingIndent, setEditingIndent] = useState<TravelIndent | null>(null);
@@ -89,11 +88,6 @@ export default function IndentConsole({
       console.error(err);
     }
   };
-
-  // SQL Query simulation state
-  const [queryInput, setQueryInput] = useState("SELECT * FROM travel_indents ORDER BY created_at DESC;");
-  const [queryResult, setQueryResult] = useState<any[] | null>(null);
-  const [queryError, setQueryError] = useState("");
 
   // Statistics calculation
   const stats = useMemo(() => {
@@ -174,571 +168,206 @@ export default function IndentConsole({
     }
   };
 
-  // Run a mock SQL simulator using actual frontend state database records
-  const runSimulatedSQL = (e: React.FormEvent) => {
-    e.preventDefault();
-    setQueryError("");
-    setQueryResult([]);
-    
-    const query = queryInput.trim().toUpperCase();
-    
-    // Simplistic mock SELECT evaluation to demonstrate constraint rules and state
-    if (!query.startsWith("SELECT")) {
-      setQueryError("Syntax Error: Only read-only SELECT statements are supported in this desk sandbox simulator.");
-      return;
-    }
-
-    try {
-      if (query.includes("FROM TRAVEL_INDENTS")) {
-        let results = [...indents];
-        if (query.includes("ORDER BY CREATED_AT DESC")) {
-          results.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        }
-        if (query.includes("WHERE PRIORITY = 'CRITICAL'")) {
-          results = results.filter(i => i.priority === "CRITICAL");
-        }
-        setQueryResult(results);
-      } else if (query.includes("FROM EMPLOYEES")) {
-        setQueryResult(employees);
-      } else {
-        setQueryError("Table Not Found: SQLite sandbox supports SELECT directly from 'travel_indents' or 'employees' schemas.");
-      }
-    } catch (err: any) {
-      setQueryError(err.message || "Unknown error executing statement.");
-    }
-  };
-
   return (
-    <div id="indent-console-panel" className="space-y-8">
+    <div id="indent-console-panel" className="space-y-6">
       
-      {/* Main Console Navigation Tabs */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="flex border-b border-slate-200 bg-slate-50 px-6 pt-3.5">
-          <button
-            onClick={() => setActiveTab("indents")}
-            id="tab-view-indents"
-            className={`px-6 py-4 text-[11px] font-black uppercase tracking-wider transition-all border-b-2 rounded-t-xl flex items-center gap-2 ${
-              activeTab === "indents" 
-                ? "border-slate-900 text-slate-900 bg-white shadow-xs" 
-                : "border-transparent text-slate-900 hover:bg-slate-50"
-            }`}
-          >
-            <Briefcase className="w-3.5 h-3.5" />
-            Active Indents Console
-          </button>
-          <button
-            onClick={() => setActiveTab("employees")}
-            id="tab-view-employees"
-            className={`px-6 py-4 text-[11px] font-black uppercase tracking-wider transition-all border-b-2 rounded-t-xl flex items-center gap-2 ${
-              activeTab === "employees" 
-                ? "border-slate-900 text-slate-900 bg-white shadow-xs" 
-                : "border-transparent text-slate-900 hover:bg-slate-50"
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            Traveler Profiles Master
-          </button>
-          <button
-            onClick={() => setActiveTab("vendors")}
-            id="tab-view-vendors"
-            className={`px-6 py-4 text-[11px] font-black uppercase tracking-wider transition-all border-b-2 rounded-t-xl flex items-center gap-2 ${
-              activeTab === "vendors" 
-                ? "border-slate-900 text-slate-900 bg-white shadow-xs" 
-                : "border-transparent text-slate-900 hover:bg-slate-50"
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            Vendor Partners
-          </button>
-          <button
-            onClick={() => setActiveTab("schema")}
-            id="tab-view-schema"
-            className={`px-6 py-4 text-[11px] font-black uppercase tracking-wider transition-all border-b-2 rounded-t-xl flex items-center gap-2 ${
-              activeTab === "schema" 
-                ? "border-slate-900 text-slate-900 bg-white shadow-xs" 
-                : "border-transparent text-slate-900 hover:bg-slate-50"
-            }`}
-          >
-            <Database className="w-3.5 h-3.5" />
-            01_schema.sql Inspector
-          </button>
-          <button
-            onClick={() => setActiveTab("simulation")}
-            id="tab-view-simulator"
-            className={`px-6 py-4 text-[11px] font-black uppercase tracking-wider transition-all border-b-2 rounded-t-xl flex items-center gap-2 ${
-              activeTab === "simulation" 
-                ? "border-slate-900 text-slate-900 bg-white shadow-xs" 
-                : "border-transparent text-slate-900 hover:bg-slate-50"
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5" />
-            SQL Statement Sandbox
-          </button>
+      {/* Active Indents View */}
+      <div className="space-y-6">
+        <div className="flex flex-col xl:flex-row gap-4 items-center justify-between pb-2">
+          <div className="relative w-full xl:max-w-md">
+            <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-900" />
+            <input
+              type="text"
+              id="input-search-query"
+              placeholder="Search traveler ID, destination, name or reason..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-white border border-slate-200 pl-10 pr-4 py-2.5 text-xs font-bold rounded-xl focus:outline-none focus:border-slate-900"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-3 w-full xl:w-auto justify-end">
+            {/* Category Filter */}
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+              <Filter className="w-3.5 h-3.5 text-slate-900" />
+              <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Category:</span>
+              <select
+                id="select-category-filter"
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">ALL CATEGORIES</option>
+                <option value="DOMESTIC">DOMESTIC</option>
+                <option value="INTERNATIONAL">INTERNATIONAL</option>
+                <option value="INTERNATIONAL_RETURN">INTERNATIONAL RETURN</option>
+                <option value="TRAIN">TRAIN</option>
+                <option value="BUS">BUS</option>
+                <option value="CAB">CAB</option>
+              </select>
+            </div>
+
+            {/* Priority Filter */}
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+              <Filter className="w-3.5 h-3.5 text-slate-900" />
+              <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Priority:</span>
+              <select
+                id="select-priority-filter"
+                value={selectedPriority}
+                onChange={(e) => setSelectedPriority(e.target.value)}
+                className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">ALL PRIORITIES</option>
+                <option value="LOW">LOW</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="HIGH">HIGH</option>
+                <option value="CRITICAL">CRITICAL</option>
+              </select>
+            </div>
+          </div>
         </div>
 
-        <div className="p-8">
-          {/* Active Indents tab */}
-          {activeTab === "indents" && (
-            <div className="space-y-6">
-              <div className="flex flex-col xl:flex-row gap-4 items-center justify-between pb-2">
-                <div className="relative w-full xl:max-w-md">
-                  <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-900" />
-                  <input
-                    type="text"
-                    id="input-search-query"
-                    placeholder="Search traveler ID, destination, name or reason..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-white border border-slate-200 pl-10 pr-4 py-2.5 text-xs font-bold rounded-xl focus:outline-none focus:border-slate-900"
-                  />
-                </div>
+        {/* Empty state panel */}
+        {filteredIndents.length === 0 ? (
+          <div className="bg-slate-50 border border-slate-100 rounded-3xl p-12 text-center text-slate-400">
+            <Compass className="w-10 h-10 mx-auto text-slate-300 mb-3.5 animate-bounce" />
+            <span className="text-xs font-black uppercase tracking-wider block">No matching travel indents found in registry</span>
+            <span className="text-[10px] text-slate-400 block mt-1">Refine filters or query parameter inputs</span>
+          </div>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
+            <table className="w-full text-left border-collapse text-xs font-medium text-slate-700">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr className="text-[9px] font-black text-slate-950 uppercase tracking-widest">
+                  <th className="px-6 py-4">Indent ID</th>
+                  <th className="px-6 py-4">Traveler Details</th>
+                  <th className="px-6 py-4">Sector Details</th>
+                  <th className="px-6 py-4">Category</th>
+                  <th className="px-6 py-4">Priority</th>
+                  <th className="px-6 py-4">Expected Date</th>
+                  <th className="px-6 py-4">Workflow Status</th>
+                  <th className="px-6 py-4 text-center">Action Command</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 uppercase font-semibold">
+                {filteredIndents.map((indent) => {
+                  const hasJobCard = jobCards.some(jc => jc.indentId === indent.id);
+                  const isVoided = indent.voided;
+                  
+                  let badgeColor = "bg-amber-100 text-amber-800 border-amber-200";
+                  let statusLabel = "PENDING REVIEW";
+                  
+                  if (isVoided) {
+                    badgeColor = "bg-rose-100 text-rose-800 border-rose-200";
+                    statusLabel = "VOIDED";
+                  } else if (hasJobCard) {
+                    badgeColor = "bg-emerald-100 text-emerald-800 border-emerald-200";
+                    statusLabel = "JOB CARD ACTIVE";
+                  }
 
-                <div className="flex flex-wrap gap-3 w-full xl:w-auto justify-end">
-                  {/* Category Filter */}
-                  <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
-                    <Filter className="w-3.5 h-3.5 text-slate-900" />
-                    <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Category:</span>
-                    <select
-                      id="filter-category"
-                      value={selectedCategory}
-                      onChange={(e) => setSelectedCategory(e.target.value)}
-                      className="bg-transparent border-none text-xs font-bold text-slate-800 outline-none cursor-pointer"
+                  return (
+                    <tr 
+                      key={indent.id} 
+                      className={`hover:bg-slate-50 transition-colors duration-100 ${
+                        isVoided ? "opacity-60 bg-rose-50/10" : ""
+                      }`}
                     >
-                      <option value="ALL">ALL CATEGORIES</option>
-                      <option value="DOMESTIC">DOMESTIC</option>
-                      <option value="INTERNATIONAL">INTERNATIONAL</option>
-                      <option value="INTERNATIONAL_RETURN">INTERNATIONAL RETURN</option>
-                      <option value="TRAIN">TRAIN</option>
-                      <option value="BUS">BUS</option>
-                      <option value="CAB">CAB</option>
-                    </select>
-                  </div>
-
-                  {/* Priority Filter */}
-                  <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
-                    <Filter className="w-3.5 h-3.5 text-slate-900" />
-                    <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Priority:</span>
-                    <select
-                      id="filter-priority"
-                      value={selectedPriority}
-                      onChange={(e) => setSelectedPriority(e.target.value)}
-                      className="bg-transparent border-none text-xs font-bold text-slate-800 outline-none cursor-pointer"
-                    >
-                      <option value="ALL">ALL PRIORITIES</option>
-                      <option value="LOW">LOW</option>
-                      <option value="MEDIUM">MEDIUM</option>
-                      <option value="HIGH">HIGH</option>
-                      <option value="CRITICAL">CRITICAL</option>
-                    </select>
-                  </div>
-
-                  <button
-                    onClick={onCreateNewClick}
-                    id="btn-raise-indent"
-                    className="bg-slate-900 hover:bg-slate-800 text-white font-black text-[10px] uppercase tracking-widest px-6 py-2.5 rounded-full shadow-lg transition-transform hover:scale-[1.02]"
-                  >
-                    + Raise Travel Indent
-                  </button>
-                </div>
-              </div>
-
-              {/* Indents Table/Grid display */}
-              {filteredIndents.length === 0 ? (
-                <div className="text-center py-16 border-2 border-dashed border-slate-200 rounded-3xl bg-slate-50">
-                  <BadgeHelp className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-slate-500 font-extrabold text-xs uppercase tracking-wider">No active travel indents found matching parameters.</p>
-                  <button onClick={() => { setSearchQuery(""); setSelectedCategory("ALL"); setSelectedPriority("ALL"); }} className="text-orange-600 hover:underline font-black text-xs uppercase mt-3 block mx-auto tracking-widest">Reset Desk Filters</button>
-                </div>
-              ) : (
-                <div id="indents-list" className="overflow-x-auto border border-slate-200 rounded-3xl bg-white shadow-xs">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-100 border-b-2 border-slate-900 text-[10px] font-black uppercase tracking-widest text-slate-950">
-                        <th className="px-6 py-4">Indent ID</th>
-                        <th className="px-6 py-4">Traveler</th>
-                        <th className="px-6 py-4">Category</th>
-                        <th className="px-6 py-4">Priority</th>
-                        <th className="px-6 py-4">Travel Date</th>
-                        <th className="px-6 py-4">Route (From → To)</th>
-                        <th className="px-6 py-4">Raiser</th>
-                        <th className="px-6 py-4">Approver</th>
-                        <th className="px-6 py-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-150 text-xs text-slate-700 font-bold">
-                      {filteredIndents.map((indent) => {
-                        const isVoided = !!indent.voided;
-                        return (
-                          <tr key={indent.id} className={`transition ${isVoided ? "bg-orange-50/20 hover:bg-orange-50/35" : "hover:bg-slate-50/70"}`}>
-                            <td className="px-6 py-4.5">
-                              <span className="font-mono text-xs font-black block text-slate-900">{indent.id}</span>
-                              {isVoided && (
-                                <span className="inline-block text-[8px] font-black text-orange-700 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded uppercase mt-1">
-                                  ⚠️ VOID: Cancel Return
-                                </span>
-                              )}
-                              <div className="text-[9px] text-slate-950 flex items-center gap-1 font-mono font-bold uppercase mt-0.5">
-                                <span>GST: {indent.gst_applicable ? "Yes" : "No"}</span>
-                                {indent.plant && (
-                                  <>
-                                    <span className="text-slate-300">•</span>
-                                    <span className="text-orange-600 font-extrabold bg-orange-50 px-1 border border-orange-100 rounded">{indent.plant}</span>
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                            <td 
-                              className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/70 transition-colors group"
-                              onClick={() => {
-                                const emp = employees.find(e => e.employee_code === indent.employee_code);
-                                if (emp) setProfileEmployee(emp);
-                              }}
-                              title="Click to view full employee profile and travel history"
-                            >
-                              <span className="font-black block text-sm group-hover:text-orange-600 transition-colors flex items-center gap-1 text-slate-900">
-                                <span>{indent.employeeName}</span>
-                                <span className="text-[10px] text-slate-300 group-hover:text-orange-500 font-mono">ℹ️</span>
-                              </span>
-                              <span className="text-[10px] text-slate-950 block font-black uppercase tracking-wider">{indent.employeeDesignation} ({indent.employee_code})</span>
-                            </td>
-                            <td className="px-6 py-4.5">
-                              <span className={`inline-block px-2.5 py-1 rounded-lg font-black text-[9px] uppercase tracking-wider border-l-4 shadow-2xs ${
-                                indent.travel_type === "DOMESTIC" ? "bg-slate-50 text-slate-850 border-slate-300" :
-                                indent.travel_type.startsWith("INTERNATIONAL") ? "bg-slate-900 text-white border-slate-700" :
-                                indent.travel_type === "TRAIN" ? "bg-teal-50 text-teal-850 border-teal-500" :
-                                indent.travel_type === "BUS" ? "bg-indigo-50 text-indigo-850 border-indigo-500" :
-                                "bg-orange-50 text-orange-950 border-orange-500"
-                              }`}>
-                                {indent.travel_type.replace("_", " ")}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4.5">
-                              <span className={`inline-block px-2.5 py-1 rounded-lg font-black text-[9px] uppercase tracking-wider border-l-4 shadow-2xs ${
-                                indent.priority === "LOW" ? "bg-slate-50 text-slate-500 border-slate-300" :
-                                indent.priority === "MEDIUM" ? "bg-blue-50 text-blue-850 border-blue-500" :
-                                indent.priority === "HIGH" ? "bg-orange-50 text-orange-950 border-orange-500" :
-                                "bg-rose-50 text-rose-800 border-rose-600 animate-pulse"
-                              }`}>
-                                {indent.priority}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4.5">
-                              <span className="block font-black text-slate-900">{indent.travel_date}</span>
-                              <span className="text-[9px] text-slate-950 block font-black uppercase tracking-wider">Visa: {indent.visa_type}</span>
-                            </td>
-                            <td className="px-6 py-4.5">
-                              <div className="flex items-center gap-1.5 font-black text-slate-900">
-                                <span className="text-slate-950">{indent.source_location}</span>
-                                <ArrowRight className="w-3.5 h-3.5 text-orange-500" />
-                                <span className="text-slate-950">{indent.destination}</span>
-                              </div>
-                              <span className="text-[10px] block text-slate-950 font-black max-w-xs truncate uppercase mt-0.5">{indent.purpose}</span>
-                              {isVoided && indent.void_reason && (
-                                <span className="text-[9.5px] block text-orange-600 font-semibold uppercase mt-1 max-w-xs truncate" title={indent.void_reason}>
-                                  Cancel Specifics: "{indent.void_reason}"
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4.5">
-                              <span className="block font-black text-slate-800 text-xs">{indent.indent_raiser || "N/A"}</span>
-                              <span className="text-[9px] font-mono text-slate-400 font-black uppercase font-bold">Raised By</span>
-                            </td>
-                            <td className="px-6 py-4.5">
-                              {(() => {
-                                const emp = employees.find(e => e.employee_code === indent.employee_code);
-                                return (
-                                  <>
-                                    <span className="block font-black text-slate-800 text-xs">{emp?.default_travel_approver || "N/A"}</span>
-                                    <span className="text-[9px] font-mono text-slate-400 font-black uppercase font-bold">Cost Center: {emp?.cost_centre || "HEMRAJ-HQ"}</span>
-                                  </>
-                                );
-                              })()}
-                            </td>
-                            <td className="px-6 py-4.5 text-right">
-                              <div className="flex items-center justify-end gap-2.5">
-                                {onApproveAndCreateJobCard && (
-                                  <button
-                                    onClick={() => onApproveAndCreateJobCard(indent)}
-                                    title="Approve & Send to Job Card Tracking Desk"
-                                    className="px-3 py-1.5 bg-slate-900 border border-slate-900 text-white hover:bg-teal-650 hover:border-teal-650 duration-150 rounded-xl transition flex items-center gap-1.5 font-black uppercase text-[8px] tracking-widest hover:scale-[1.03] active:scale-[0.97]"
-                                  >
-                                    <Check className="w-3.5 h-3.5 text-teal-400" />
-                                    <span>Approve & JC</span>
-                                  </button>
-                                )}
-
-                                {isVoided ? (
-                                  <button
-                                    onClick={() => handleRestoreIndent(indent)}
-                                    id={`restore-indent-${indent.id}`}
-                                    title="Remove VOID instruction flag"
-                                    className="px-3 py-1.5 bg-slate-100 border border-slate-350 text-slate-700 hover:bg-slate-200 duration-150 rounded-xl transition flex items-center font-black uppercase text-[8px] tracking-widest hover:scale-[1.03] active:scale-[0.97]"
-                                  >
-                                    <span>Remove VOID</span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => setVoidingIndent(indent)}
-                                    id={`void-indent-${indent.id}`}
-                                    title="Mark as VOID (Cancel return ticket after booking)"
-                                    className="px-3 py-1.5 bg-orange-50 border border-orange-350 text-orange-850 hover:bg-orange-100 duration-150 rounded-xl transition flex items-center font-black uppercase text-[8px] tracking-widest hover:scale-[1.03] active:scale-[0.97]"
-                                  >
-                                    <span>Mark VOID</span>
-                                  </button>
-                                )}
-
-                                <button
-                                  onClick={() => handleEditClick(indent)}
-                                  title="Edit Indent Form"
-                                  className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-150 rounded-xl transition duration-150 hover:scale-[1.05]"
-                                >
-                                  <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    if (confirm(`Are you sure you want to delete Travel Indent ${indent.id}?`)) {
-                                      onDeleteIndent(indent.id);
-                                    }
-                                  }}
-                                  title="Delete Indent"
-                                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition duration-150 hover:scale-[1.05]"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Master Traveler Profiles tab */}
-          {activeTab === "employees" && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider">Hemraj Group Master Employees Directory</h4>
-                <button
-                  onClick={onCreateNewClick}
-                  className="bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-full transition"
-                >
-                  + Add Employee Profile
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {employees.map(emp => (
-                  <div key={emp.employee_code} className="bg-white border-2 border-slate-200 p-6 rounded-3xl shadow-sm relative flex gap-5 hover:border-orange-500/40 transition">
-                    {emp.photograph_url ? (
-                      <img
-                        src={emp.photograph_url}
-                        alt="Employee photo"
-                        className="w-16 h-16 rounded-full object-cover border-2 border-slate-200 shadow-sm shrink-0"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-xl shrink-0 uppercase tracking-tighter border-2 border-orange-500">
-                        {emp.name.charAt(0)}
-                      </div>
-                    )}
-                    <div className="text-xs space-y-1 w-full">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-slate-900 text-base block">{emp.name}</span>
-                            <div className="flex items-center gap-1">
-                              <button 
-                                onClick={() => {
-                                  // For now, satisfy with modal view, but could add edit mode
-                                  setProfileEmployee(emp);
-                                }}
-                                className="p-1 text-slate-400 hover:text-slate-900 transition"
-                                title="Edit Profile"
-                              >
-                                <Edit className="w-3 h-3" />
-                              </button>
-                              <button 
-                                onClick={() => onDeleteEmployee(emp.employee_code)}
-                                className="p-1 text-slate-400 hover:text-rose-600 transition"
-                                title="Delete Profile"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                          <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">CODE: {emp.employee_code}</span>
+                      <td className="px-6 py-4 font-mono font-black text-slate-900 tracking-tight">
+                        {indent.id}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="space-y-0.5">
+                          <span className="font-extrabold text-slate-900 block normal-case leading-tight">{indent.employeeName}</span>
+                          <span className="text-[9px] text-slate-400 block font-bold">CODE: {indent.employee_code}</span>
                         </div>
-                        <span className="bg-slate-900 text-white font-black px-2.5 py-1 rounded text-[9px] uppercase tracking-wider">
-                          {emp.department}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="space-y-0.5">
+                          <span className="font-extrabold text-slate-900 block leading-tight">{indent.source_location} → {indent.destination}</span>
+                          <span className="text-[9px] text-slate-400 block normal-case font-bold">{indent.purpose}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="bg-slate-100 text-slate-900 px-2 py-0.5 rounded text-[8px] font-black tracking-wider">
+                          {indent.travel_type}
                         </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-150 text-[11px] font-bold">
-                        <div>
-                          <span className="text-[9px] text-slate-400 block font-black uppercase tracking-widest">Designation</span>
-                          <span className="text-slate-900 font-extrabold truncate block max-w-[150px]">{emp.designation}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-0.5 rounded text-[8px] font-black tracking-widest ${
+                          indent.priority === "CRITICAL" ? "bg-rose-600 text-white" :
+                          indent.priority === "HIGH" ? "bg-orange-500 text-white" :
+                          indent.priority === "MEDIUM" ? "bg-blue-600 text-white" : "bg-slate-400 text-white"
+                        }`}>
+                          {indent.priority}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-mono font-black text-slate-900">
+                        {indent.travel_date}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded text-[8px] font-black border uppercase tracking-widest ${badgeColor}`}>
+                          {statusLabel}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          {!hasJobCard && !isVoided && onApproveAndCreateJobCard && (
+                            <button
+                              onClick={() => onApproveAndCreateJobCard(indent)}
+                              title="Approve & Initiate Tracking Job Card"
+                              className="px-3.5 py-1.5 bg-slate-950 hover:bg-slate-900 text-white text-[9px] font-black uppercase tracking-wider rounded-xl transition duration-150 shadow-sm hover:scale-[1.05]"
+                            >
+                              Approve L1
+                            </button>
+                          )}
+                          {!isVoided ? (
+                            <button
+                              onClick={() => setVoidingIndent(indent)}
+                              title="Mark Request as Void"
+                              className="p-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition duration-150 hover:scale-[1.05]"
+                            >
+                              <AlertCircle className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleRestoreIndent(indent)}
+                              title="Restore Void Request"
+                              className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition duration-150 hover:scale-[1.05]"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setEditingIndent(indent);
+                              setEditForm(indent);
+                              setEditError("");
+                            }}
+                            title="Edit Details"
+                            className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-xl transition duration-150 hover:scale-[1.05]"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Confirm permanent deletion of indent reference: ${indent.id}?`)) {
+                                onDeleteIndent(indent.id);
+                              }
+                            }}
+                            title="Delete Indent"
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition duration-150 hover:scale-[1.05]"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                        <div>
-                          <span className="text-[9px] text-slate-400 block font-black uppercase tracking-widest">Approver</span>
-                          <span className="text-slate-900 font-extrabold block">{emp.default_travel_approver}</span>
-                        </div>
-                        <div>
-                          <span className="text-[9px] text-slate-400 block font-black uppercase tracking-widest">Contact WhatsApp</span>
-                          <span className="text-slate-900 font-extrabold font-mono block">{emp.phone}</span>
-                        </div>
-                        <div>
-                          <span className="text-[9px] text-slate-400 block font-black uppercase tracking-widest">Cost Center</span>
-                          <span className="text-slate-900 font-extrabold block">{emp.cost_centre} ({emp.default_billing_currency})</span>
-                        </div>
-                      </div>
-
-                      {/* Display conditional passport details to show high density data verification */}
-                      {emp.passport_number && (
-                        <div className="mt-3.5 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-[10px] font-mono grid grid-cols-2 gap-1 text-slate-500 font-bold uppercase tracking-wide">
-                          <div>PP NO: <strong className="text-slate-900 font-black">{emp.passport_number}</strong></div>
-                          <div>VISA REGION: <strong className="text-slate-900 font-black">{emp.visa_country || "India"}</strong></div>
-                          <div>POLIO STATE: <strong className="text-orange-600 font-black">{emp.polio_certificate_expiry || "Valid"}</strong></div>
-                          <div>YFV STATE: <strong className="text-orange-600 font-black">{emp.yfv_certificate_expiry || "Valid"}</strong></div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Vendor Partners Master tab */}
-          {activeTab === "vendors" && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider">Approved Travel Agency & Vendor Partners</h4>
-                <div className="flex gap-2">
-                   <span className="text-[8px] bg-slate-100 text-slate-500 px-2 py-1 rounded font-black uppercase tracking-widest">Global Master Data</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {vendors.map(vendor => (
-                  <div key={vendor.id} className="bg-white border-2 border-slate-200 p-6 rounded-3xl shadow-sm relative flex flex-col gap-4 hover:border-indigo-500/40 transition group">
-                    <div className="flex justify-between items-start">
-                      <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
-                        <Building2 className="w-6 h-6" />
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button 
-                          onClick={() => {
-                            if (confirm(`Are you sure you want to remove vendor ${vendor.name}?`)) {
-                              onDeleteVendor(vendor.id);
-                            }
-                          }}
-                          className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                          title="Blacklist/Remove Vendor"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                       <h3 className="text-base font-extrabold text-slate-950 truncate tracking-tight">{vendor.name}</h3>
-                       <p className="text-[10px] text-slate-400 font-mono font-black uppercase">{vendor.id}</p>
-                    </div>
-
-                    <div className="space-y-2.5 pt-4 border-t border-slate-100 text-[11px] font-bold">
-                       <div className="flex items-center gap-2 text-slate-600">
-                          <FileText className="w-3.5 h-3.5 text-indigo-500" />
-                          <span className="truncate">{(vendor.emails || []).join(", ")}</span>
-                       </div>
-                       <div className="flex items-center gap-2 text-slate-600">
-                          <Users className="w-3.5 h-3.5 text-indigo-500" />
-                          <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[9px] uppercase font-black">{(vendor.categories || []).join(", ")} Service</span>
-                       </div>
-                    </div>
-
-                    <div className="mt-auto pt-4 flex gap-2">
-                       <button 
-                         onClick={() => onUpdateVendor(vendor)}
-                         className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black uppercase tracking-widest rounded-xl transition shadow-xs"
-                       >
-                         Manage Agents
-                       </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* raw schema viewer tab */}
-          {activeTab === "schema" && (
-            <div className="space-y-4">
-              <div className="bg-slate-900 rounded-3xl p-6 text-white font-mono text-xs overflow-x-auto relative border-2 border-slate-950">
-                <div className="absolute right-4 top-4 bg-orange-600 text-white text-[9px] font-black px-2.5 py-1 rounded uppercase tracking-wider">
-                  PostgreSQL / SQLite Compliance
-                </div>
-                <h4 className="text-sm font-black text-slate-300 mb-4 block border-b border-white/10 pb-3 uppercase tracking-wider">📂 /src/db/01_schema.sql</h4>
-                <pre className="leading-relaxed select-all text-orange-200 font-bold">{schemaSql || "-- Fetching SQL schema content..."}</pre>
-              </div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider italic">This is the authoritative relational schema structure generated on boot to manage strict database normalization, constraints, and data integrity.</p>
-            </div>
-          )}
-
-          {/* SQL Sandbox Simulation Tab */}
-          {activeTab === "simulation" && (
-            <div className="space-y-6">
-              <div className="p-5 bg-orange-50 border border-orange-200 rounded-2xl text-orange-950 text-xs flex gap-3 font-bold">
-                <TrendingUp className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
-                <div>
-                  <strong>Relational DB Constraints Live Sandbox:</strong> Hemraj personal travel desk maps all client form submissions into direct transactional inserts. You can simulation-query raw table structures live to examine records.
-                </div>
-              </div>
-
-              <form onSubmit={runSimulatedSQL} className="space-y-3">
-                <div>
-                  <label htmlFor="input-sql-statement" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    Execute SELECT SQL query in sandbox *
-                  </label>
-                  <div className="flex gap-3">
-                    <input
-                      id="input-sql-statement"
-                      type="text"
-                      value={queryInput}
-                      onChange={(e) => setQueryInput(e.target.value)}
-                      className="flex-1 bg-slate-900 border-2 border-slate-950 text-orange-300 font-mono text-xs rounded-xl px-4 py-3.5 focus:outline-none focus:border-orange-500 font-bold"
-                    />
-                    <button
-                      type="submit"
-                      className="bg-slate-900 hover:bg-slate-800 text-white font-black text-[10px] uppercase tracking-widest px-6 py-3 rounded-xl transition"
-                    >
-                      Run Query
-                    </button>
-                  </div>
-                </div>
-              </form>
-
-              {/* Simulation Result */}
-              {queryError && (
-                <div className="bg-orange-50 border border-orange-200 text-orange-950 p-4 rounded-xl text-xs font-mono font-bold uppercase tracking-wide">
-                  {queryError}
-                </div>
-              )}
-
-              {queryResult && (
-                <div className="bg-slate-900 p-5 rounded-3xl text-orange-100 font-mono text-xs overflow-x-auto border-2 border-slate-950">
-                  <span className="text-[9px] font-black text-slate-400 uppercase block mb-3 border-b border-white/10 pb-1.5 tracking-widest select-none">
-                    Result Output ({queryResult.length} rows returned)
-                  </span>
-                  <pre className="font-bold">{JSON.stringify(queryResult, null, 2)}</pre>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* EDIT MODAL FOR TRAVEL INDENT */}

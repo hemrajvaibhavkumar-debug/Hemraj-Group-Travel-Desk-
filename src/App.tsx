@@ -24,6 +24,15 @@ export default function App() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [schemaSql, setSchemaSql] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
+  const [initialLoading, setInitialLoading] = useState<boolean>(true);
+  const [forexRates, setForexRates] = useState<Record<string, number>>({
+    USD: 1.0825,
+    INR: 90.35,
+    AUD: 1.6312,
+    NGN: 1625.5,
+    VND: 27550.0,
+    EUR: 1.0
+  });
   const [errorText, setErrorText] = useState<string>("");
   const [successText, setSuccessText] = useState<string>("");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
@@ -92,11 +101,27 @@ export default function App() {
       setErrorText(err.message || "Failed to synchronise data with backend server.");
     } finally {
       setLoading(false);
+      setInitialLoading(false);
+    }
+  };
+
+  const fetchForexRates = async () => {
+    try {
+      const res = await fetch("/api/forex/rates");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.rates) {
+          setForexRates(data.rates);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load live forex rates:", e);
     }
   };
 
   useEffect(() => {
     fetchData();
+    fetchForexRates();
   }, []);
 
   // Post new Indent (and optional New Traveler Profile employee)
@@ -426,6 +451,19 @@ export default function App() {
                 <p className="mt-2 text-[13px] font-black text-slate-950 tracking-tight uppercase">Travel Desk</p>
               </div>              <div className="px-6 pb-2 text-[9px] font-black text-slate-900 uppercase tracking-widest mt-6">Operations</div>
               <button
+                onClick={() => { setCurrentView("flight-search"); setIsMobileMenuOpen(false); }}
+                id="btn-nav-flight-search"
+                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                  currentView === "flight-search"
+                    ? "bg-slate-900 text-white shadow-lg font-black"
+                    : "text-slate-900 hover:bg-slate-50 font-black"
+                }`}
+              >
+                {currentView === "flight-search" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                <span>Flight Search</span>
+              </button>
+
+              <button
                 onClick={() => { setCurrentView("dashboard"); setIsMobileMenuOpen(false); }}
                 id="btn-nav-dashboard"
                 className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
@@ -476,19 +514,6 @@ export default function App() {
               >
                 {currentView === "jobcards" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
                 <span>Job Card</span>
-              </button>
-
-              <button
-                onClick={() => { setCurrentView("flight-search"); setIsMobileMenuOpen(false); }}
-                id="btn-nav-flight-search"
-                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
-                  currentView === "flight-search"
-                    ? "bg-slate-900 text-white shadow-lg font-black"
-                    : "text-slate-900 hover:bg-slate-50 font-black"
-                }`}
-              >
-                {currentView === "flight-search" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
-                <span>Flight Search</span>
               </button>
 
               <div className="px-6 pb-2 text-[9px] font-black text-slate-900 uppercase tracking-widest mt-6">Compliance</div>
@@ -632,9 +657,7 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              )}
-
-              <button
+              )}               <button
                 onClick={fetchData}
                 disabled={loading}
                 title="Sync database tables"
@@ -643,15 +666,22 @@ export default function App() {
                 <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-orange-600" : ""}`} />
               </button>
               
-              <div className="bg-white px-4 py-2 border border-slate-300 rounded-xl text-[10px] font-mono text-slate-950 font-black uppercase tracking-wider">
-                System Status: <strong className="text-emerald-700 font-black uppercase">● Online</strong>
+              <div className="bg-white px-4 py-2 border border-slate-300 rounded-xl text-[10px] font-mono text-slate-950 font-black uppercase tracking-wider flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${loading ? "bg-orange-500 animate-ping" : "bg-emerald-600"}`} />
+                System Status: <strong className={loading ? "text-orange-600 font-black uppercase" : "text-emerald-700 font-black uppercase"}>
+                  {loading ? "Syncing..." : "Online"}
+                </strong>
               </div>
             </div>
           </header>
 
           {/* Dynamic state content switch */}
-          <div className={`flex-1 overflow-y-auto p-4 ${currentView === 'jobcards' ? 'md:pt-2' : 'md:pt-6'} md:px-10 md:pb-10`}>
-            {loading ? (
+          <div className={`flex-1 overflow-y-auto p-4 ${currentView === 'jobcards' ? 'md:pt-2' : 'md:pt-6'} md:px-10 md:pb-10 relative`}>
+            {loading && !initialLoading && (
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-500 to-amber-500 animate-pulse z-50" />
+            )}
+
+            {initialLoading ? (
               <div className="py-24 text-center">
                 <RefreshCw className="w-8 h-8 text-orange-600 animate-spin mx-auto mb-3" />
                 <p className="text-slate-950 font-black text-xs uppercase tracking-wider">Authenticating credentials & Loading records database...</p>
@@ -710,6 +740,7 @@ export default function App() {
                     setActiveTab={setActiveTab}
                     kanbanView={kanbanView}
                     setKanbanView={setKanbanView}
+                    forexRates={forexRates}
                   />
                 ) : currentView === "passports" ? (
                   <PassportValidityDashboard
@@ -718,7 +749,7 @@ export default function App() {
                     onRefresh={fetchData}
                   />
                 ) : currentView === "flight-search" ? (
-                  <FlightSearchHub />
+                  <FlightSearchHub forexRates={forexRates} />
                 ) : (
                   <SettingsPanel
                     onRefreshAllData={fetchData}

@@ -8,7 +8,7 @@ import {
   Trash2, Edit3, Send, FileText, CheckCircle, Sparkles, 
   AlertTriangle, Upload, Eye, EyeOff, Clipboard, Play, 
   FileCheck, ShieldCheck, ArrowRight, UserCheck, DollarSign,
-  Paperclip,
+  Paperclip, Download,
   Coins, Activity, List, Kanban, AlertCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -28,6 +28,7 @@ interface JobCardManagerProps {
   kanbanView: boolean;
   setKanbanView: (view: boolean) => void;
   activeUserName: string;
+  forexRates?: Record<string, number>;
 }
 
 export default function JobCardManager({ 
@@ -43,7 +44,8 @@ export default function JobCardManager({
   activeTab,
   setActiveTab,
   kanbanView,
-  setKanbanView
+  setKanbanView,
+  forexRates
 }: JobCardManagerProps) {
   const [jobCards, setJobCards] = useState<JobCard[]>(initialJobCards);
   const [selectedCard, setSelectedCard] = useState<JobCard | null>(null);
@@ -51,6 +53,31 @@ export default function JobCardManager({
   const [isLeftListCollapsed, setIsLeftListCollapsed] = useState(false);
   
   const [activeViewSection, setActiveViewSection] = useState<JobCardStage | 'OVERVIEW' | 'VENDOR_INVOICE' | null>(null);
+  
+  // Advanced Filter states
+  const [filterSearch, setFilterSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState<string>("ALL");
+  const [filterPriority, setFilterPriority] = useState<string>("ALL");
+  const [filterPaymentStatus, setFilterPaymentStatus] = useState<string>("ALL");
+  const [filterSlaStatus, setFilterSlaStatus] = useState<string>("ALL");
+  const [filterVendor, setFilterVendor] = useState<string>("ALL");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+
+  // Convert any currency to INR dynamically using live forex rates
+  const convertToINR = (val: number, cur: string) => {
+    const cleanCur = cur === "$" ? "USD" : cur;
+    const rates = forexRates || {
+      USD: 1.0825,
+      INR: 90.35,
+      AUD: 1.6312,
+      NGN: 1625.5,
+      VND: 27550.0,
+      EUR: 1.0
+    };
+    const inrRate = rates["INR"] || 90.35;
+    const curRate = rates[cleanCur] || (cleanCur === "USD" ? 1.0825 : cleanCur === "EUR" ? 1.0 : 1.0825);
+    return val * (inrRate / curRate);
+  };
 
   // Sync section view with the card's native stage when it changes, and hydrate form states
   useEffect(() => {
@@ -165,6 +192,10 @@ export default function JobCardManager({
   
   // Manual Quote Input States
   const [quoteVendorName, setQuoteVendorName] = useState("");
+  const [selectedBidEmails, setSelectedBidEmails] = useState<string[]>([]);
+  const [selectedBidPhones, setSelectedBidPhones] = useState<string[]>([]);
+  const [sendingWorkOrder, setSendingWorkOrder] = useState(false);
+  const [workOrderSentMessage, setWorkOrderSentMessage] = useState("");
   const [quoteAmount, setQuoteAmount] = useState("");
   const [quoteCurrency, setQuoteCurrency] = useState("INR");
   const [quoteFileBase64, setQuoteFileBase64] = useState("");
@@ -563,6 +594,8 @@ export default function JobCardManager({
     setQuoteLayover(quote.layover || "");
     setQuoteTravelDate(quote.travelDate || "");
     setIsAirlineQuote(!!quote.airline);
+    setSelectedBidEmails(quote.selectedEmails || []);
+    setSelectedBidPhones(quote.selectedPhones || []);
     
     // Smooth scroll to form
     const formElement = document.getElementById("quote-entry-form-anchor");
@@ -584,6 +617,8 @@ export default function JobCardManager({
     setQuoteFileBase64("");
     setQuoteFileName("");
     setIsAirlineQuote(false);
+    setSelectedBidEmails([]);
+    setSelectedBidPhones([]);
   };
 
   // 4. Submit Quotation details manually
@@ -611,7 +646,9 @@ export default function JobCardManager({
         sector: primaryFlight?.sector,
         layover: primaryFlight?.layover,
         travelDate: quoteTravelDate,
-        agentName: activeUserName
+        agentName: activeUserName,
+        selectedEmails: selectedBidEmails,
+        selectedPhones: selectedBidPhones
       };
 
       let updatedQuotes: JobCardQuote[] = [];
@@ -653,15 +690,7 @@ export default function JobCardManager({
   const getCheapestQuote = (quotes: JobCardQuote[]) => {
     if (!quotes || quotes.length === 0) return null;
     return quotes.reduce((cheapest, current) => {
-      // Normalize currency simple convert (Using simple rough desk multipliers: USD=83, NGN=0.06, VND=0.0035, AUD=55)
-      const getInrValue = (q: JobCardQuote) => {
-        const val = q.amount;
-        if (q.currency === "USD" || q.currency === "$") return val * 83;
-        if (q.currency === "AUD") return val * 55;
-        if (q.currency === "NGN") return val * 0.06;
-        if (q.currency === "VND") return val * 0.0035;
-        return val; // INR or others as baseline
-      };
+      const getInrValue = (q: JobCardQuote) => convertToINR(q.amount, q.currency);
       return getInrValue(current) < getInrValue(cheapest) ? current : cheapest;
     });
   };
@@ -826,6 +855,366 @@ export default function JobCardManager({
     }
   };
 
+  const handleL1TravelUnapprove = async () => {
+    if (!selectedCard) return;
+    if (selectedCard.commercialApprovalStatus === 'APPROVED') {
+      triggerError("Cannot unapprove L1 while L2 is approved. Please unapprove L2 first.");
+      return;
+    }
+    setSubmittingApproval(true);
+    try {
+      const reviewer = `Travel Board Approver [Role: ${activeRole}]`;
+      const newAudit: AuditLogEntry = {
+        timestamp: new Date().toISOString(),
+        userId: reviewer,
+        action: "Travel Unapproved (Level 1)",
+        notes: "L1 travel approval rescinded by administrator."
+      };
+
+      const res = await fetch(`/api/job-cards/${selectedCard.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          travelApprovalStatus: "PENDING",
+          travelApprovedBy: null,
+          travelApprovedAt: null,
+          travelApprovalNotes: null,
+          approvalStatus: "PENDING",
+          auditLogs: [newAudit]
+        })
+      });
+
+      if (!res.ok) throw new Error("Failed to unapprove L1.");
+      await onRefresh();
+      triggerSuccess("Level 1 Travel Approval rescinded successfully!");
+    } catch (err: any) {
+      triggerError("Error unapproving L1: " + err.message);
+    } finally {
+      setSubmittingApproval(false);
+    }
+  };
+
+  const handleL2CommercialUnapprove = async () => {
+    if (!selectedCard) return;
+    setSubmittingApproval(true);
+    try {
+      const reviewer = "VP Commercial Admin";
+      const newAudit: AuditLogEntry = {
+        timestamp: new Date().toISOString(),
+        userId: reviewer,
+        action: "Commercial Unapproved (Level 2 VP)",
+        notes: "L2 commercial approval rescinded by administrator. Card demoted to Approval stage."
+      };
+
+      const res = await fetch(`/api/job-cards/${selectedCard.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          commercialApprovalStatus: "PENDING",
+          commercialApprovedBy: null,
+          commercialApprovedAt: null,
+          commercialApprovalNotes: null,
+          stage: "APPROVAL",
+          approvalStatus: "PENDING",
+          approvedAt: null,
+          approverName: null,
+          auditLogs: [newAudit]
+        })
+      });
+
+      if (!res.ok) throw new Error("Failed to unapprove L2.");
+      await onRefresh();
+      triggerSuccess("Level 2 Commercial VP Approval rescinded! Card demoted back to Approval stage.");
+    } catch (err: any) {
+      triggerError("Error unapproving L2: " + err.message);
+    } finally {
+      setSubmittingApproval(false);
+    }
+  };
+
+  const handleSendWorkOrder = async () => {
+    if (!selectedCard) return;
+    const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+    
+    // Find associated traveler and indent details
+    const localIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
+    const traveler = localIndent ? employees.find(e => e.employee_code === localIndent.employee_code) : null;
+
+    const workOrderPayload = {
+      cardId: selectedCard.id,
+      indentId: selectedCard.indentId,
+      travelerName: selectedCard.travelerName,
+      travelerCode: localIndent?.employee_code || "N/A",
+      destination: selectedCard.destination,
+      travelDate: winQuote?.travelDate || localIndent?.travel_date || "Immediate",
+      approvedVendor: winQuote?.vendorName || "TBD",
+      amount: winQuote?.amount || 0,
+      currency: winQuote?.currency || "INR",
+      pnr: selectedCard.bookingPNR || "TBD",
+      selectedEmails: winQuote?.selectedEmails || [],
+      selectedPhones: winQuote?.selectedPhones || [],
+      authorizedBy: selectedCard.commercialApprovedBy || "VP Commercial Admin",
+      authorizedAt: selectedCard.commercialApprovedAt || new Date().toISOString()
+    };
+
+    setSendingWorkOrder(true);
+    setWorkOrderSentMessage("");
+    try {
+      const res = await fetch("/api/workorder/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(workOrderPayload)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setWorkOrderSentMessage(data.message || "Work Order successfully sent!");
+        triggerSuccess(data.message || "Work Order sent successfully!");
+      } else {
+        throw new Error(data.error || "Failed to dispatch work order.");
+      }
+    } catch (error: any) {
+      triggerError("Failed to send Work Order: " + error.message);
+    } finally {
+      setSendingWorkOrder(false);
+    }
+  };
+
+  const handleDownloadWorkOrder = () => {
+    if (!selectedCard) return;
+    const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+    const localIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
+
+    const printWindow = window.open("", "_blank", "width=800,height=900");
+    if (!printWindow) {
+      triggerError("Popup blocker prevented opening the printable Work Order window.");
+      return;
+    }
+
+    const refId = `WO-${selectedCard.id}`;
+    const dateStr = selectedCard.commercialApprovedAt ? new Date(selectedCard.commercialApprovedAt).toLocaleDateString() : new Date().toLocaleDateString();
+    const travelerName = selectedCard.travelerName;
+    const travelerCode = localIndent?.employee_code || "N/A";
+    const destination = selectedCard.destination;
+    const travelDate = winQuote?.travelDate || localIndent?.travel_date || "Immediate";
+    const approvedVendor = winQuote?.vendorName || "TBD";
+    const amountStr = winQuote ? `${winQuote.amount} ${winQuote.currency}` : "N/A";
+    const inrValueStr = winQuote ? `INR ${convertToINR(winQuote.amount, winQuote.currency).toLocaleString('en-IN')}` : "N/A";
+    const authorizedBy = selectedCard.commercialApprovedBy || "VP Commercial Admin";
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Work Order Authorization - ${refId}</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+              color: #1e293b;
+              padding: 40px;
+              line-height: 1.5;
+            }
+            .container {
+              max-width: 700px;
+              margin: 0 auto;
+              border: 1px solid #e2e8f0;
+              padding: 40px;
+              border-radius: 16px;
+              box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            }
+            .header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 2px solid #f1f5f9;
+              padding-bottom: 20px;
+              margin-bottom: 24px;
+            }
+            .logo-section {
+              display: flex;
+              align-items: center;
+              gap: 16px;
+            }
+            .logo {
+              width: 55px;
+              height: 55px;
+              object-fit: contain;
+              border-radius: 8px;
+              border: 1px solid #e2e8f0;
+            }
+            .title-section h3 {
+              margin: 0;
+              font-size: 18px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .title-section span {
+              font-size: 11px;
+              color: #64748b;
+              font-weight: 700;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+            .ref-section {
+              text-align: right;
+              font-family: monospace;
+              font-size: 11px;
+              color: #64748b;
+              font-weight: bold;
+            }
+            .ref-section div {
+              margin-bottom: 4px;
+            }
+            .doc-title {
+              text-align: center;
+              background-color: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 8px;
+              padding: 10px;
+              margin-bottom: 24px;
+            }
+            .doc-title h4 {
+              margin: 0;
+              font-size: 13px;
+              font-weight: 800;
+              letter-spacing: 1px;
+              color: #0f172a;
+            }
+            .body-text {
+              font-size: 13px;
+              color: #334155;
+              margin-bottom: 24px;
+            }
+            .details-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 24px;
+              font-size: 12px;
+            }
+            .details-table th, .details-table td {
+              border: 1px solid #e2e8f0;
+              padding: 12px 16px;
+              text-align: left;
+            }
+            .details-table th {
+              background-color: #f8fafc;
+              color: #475569;
+              font-weight: 800;
+              text-transform: uppercase;
+              font-size: 10px;
+              letter-spacing: 0.5px;
+              width: 30%;
+            }
+            .details-table td {
+              color: #0f172a;
+              font-weight: 700;
+            }
+            .directive-box {
+              background-color: #fffbeb;
+              border: 1px solid #fef3c7;
+              padding: 16px;
+              border-radius: 12px;
+              font-size: 12px;
+              font-style: italic;
+              color: #451a03;
+              margin-bottom: 30px;
+            }
+            .footer {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 20px;
+              font-size: 11px;
+              color: #64748b;
+              font-weight: 700;
+              text-transform: uppercase;
+            }
+            .footer-sign {
+              color: #1e293b;
+            }
+            @media print {
+              body {
+                padding: 0;
+              }
+              .container {
+                border: none;
+                box-shadow: none;
+                padding: 0;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <div class="logo-section">
+                <img class="logo" src="https://res.cloudinary.com/dn6sk8mqh/image/upload/v1779866397/Gemini_Generated_Image_c6yvaxc6yvaxc6yv_hr5guu.png" alt="Hemraj Logo" />
+                <div class="title-section">
+                  <h3>Hemraj Industries</h3>
+                  <span>Corporate Travel & Procurement</span>
+                </div>
+              </div>
+              <div class="ref-section">
+                <div>REF ID: ${refId}</div>
+                <div>DATE: ${dateStr}</div>
+              </div>
+            </div>
+
+            <div class="doc-title">
+              <h4>TRAVEL WORK ORDER AUTHORIZATION</h4>
+            </div>
+
+            <div class="body-text">
+              Dear Sourcing Partner / Operations Coordinator,
+              <br/><br/>
+              We hereby authorize the ticket issuance and booking execution for the travel request detailed below. This order is issued under the authority of the VP Commercial and is subject to the approved procurement guidelines and cost thresholds. Please proceed with the ticketing operations immediately.
+            </div>
+
+            <table class="details-table">
+              <tbody>
+                <tr>
+                  <th>Traveler Details</th>
+                  <td>${travelerName} (${travelerCode})</td>
+                </tr>
+                <tr>
+                  <th>Sector / Route</th>
+                  <td>${destination}</td>
+                </tr>
+                <tr>
+                  <th>Expected Travel Date</th>
+                  <td>${travelDate}</td>
+                </tr>
+                <tr>
+                  <th>Sourced Agency</th>
+                  <td style="text-transform: uppercase;">${approvedVendor}</td>
+                </tr>
+                <tr>
+                  <th>Approved Budget</th>
+                  <td style="color: #0f766e;">${amountStr} (${inrValueStr})</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="directive-box">
+              "You are authorized to proceed with the ticket and voucher bookings for the above traveler. Ensure all booking files, PNR vouchers, and tax invoices are uploaded directly to the active job card for subsequent financial reconciliation."
+            </div>
+
+            <div class="footer">
+              <span>Authorized VP: <span class="footer-sign">${authorizedBy}</span></span>
+              <span>HEMRAJ INDUSTRIES © ${new Date().getFullYear()}</span>
+            </div>
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   // Helper and Hooks for resolving employee and passport validation details
   const resolvedEmployee = useMemo(() => {
     if (!selectedCard) return null;
@@ -930,14 +1319,7 @@ export default function JobCardManager({
   const sortedQuotes = useMemo(() => {
     if (!selectedCard?.quotes) return [];
     
-    const getInrVal = (q: JobCardQuote) => {
-      const val = q.amount;
-      if (q.currency === "USD" || q.currency === "$") return val * 83;
-      if (q.currency === "VND") return val * 0.0035;
-      if (q.currency === "NGN") return val * 0.06;
-      if (q.currency === "AUD") return val * 55;
-      return val;
-    };
+    const getInrVal = (q: JobCardQuote) => convertToINR(q.amount, q.currency);
 
     const list = [...selectedCard.quotes].sort((a, b) => getInrVal(a) - getInrVal(b));
     return list;
@@ -1092,7 +1474,7 @@ export default function JobCardManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           stage: 'FINANCE',
-          bookingVendor: selectedBookingVendor || undefined,
+          bookingVendor: (winQuote ? winQuote.vendorName : selectedBookingVendor) || undefined,
           invoiceVendorAmount: finalAmt,
           invoiceCurrency: invoiceCurrency,
           invoiceNumber: invoiceNumber,
@@ -1406,12 +1788,70 @@ export default function JobCardManager({
     }
   };
 
-  // Helper filters
-  const filteredCards = jobCards.filter(jc => {
-    if (activeTab === 'ALL') return true;
-    if (activeTab === 'VOIDED') return jc.voided;
-    return jc.stage === activeTab && !jc.voided;
-  });
+  // Advanced Filter Processed Cards
+  const processedCards = useMemo(() => {
+    return jobCards.filter(jc => {
+      // 1. Stage / Tab Filter
+      if (activeTab !== 'ALL') {
+        if (activeTab === 'VOIDED') {
+          if (!jc.voided) return false;
+        } else {
+          if (jc.stage !== activeTab || jc.voided) return false;
+        }
+      }
+
+      // 2. Search Text Filter
+      if (filterSearch.trim()) {
+        const query = filterSearch.toLowerCase();
+        const matchesName = jc.travelerName.toLowerCase().includes(query);
+        const matchesId = jc.id.toLowerCase().includes(query);
+        const matchesIndent = jc.indentId.toLowerCase().includes(query);
+        const matchesDest = jc.destination.toLowerCase().includes(query);
+        const matchesPnr = jc.bookingPNR && jc.bookingPNR.toLowerCase().includes(query);
+        const matchesVendor = jc.bookingVendor && jc.bookingVendor.toLowerCase().includes(query);
+        if (!matchesName && !matchesId && !matchesIndent && !matchesDest && !matchesPnr && !matchesVendor) {
+          return false;
+        }
+      }
+
+      // Associated Indent details for Category and Priority checks
+      const localIndent = indents ? indents.find(i => i.id === jc.id || i.id === jc.indentId) : null;
+
+      // 3. Category Filter
+      if (filterCategory !== "ALL") {
+        if (!localIndent || localIndent.travel_type !== filterCategory) return false;
+      }
+
+      // 4. Priority Filter
+      if (filterPriority !== "ALL") {
+        if (!localIndent || localIndent.priority !== filterPriority) return false;
+      }
+
+      // 5. Payment Status Filter
+      if (filterPaymentStatus !== "ALL") {
+        if (jc.paymentStatus !== filterPaymentStatus && (filterPaymentStatus !== 'PENDING' || jc.paymentStatus)) return false;
+      }
+
+      // 6. SLA Status Filter
+      if (filterSlaStatus !== "ALL") {
+        const tat = calculateTATMetrics(jc);
+        const hasDelays = tat.some(m => m.status === 'delayed');
+        if (filterSlaStatus === "DELAYED" && !hasDelays) return false;
+        if (filterSlaStatus === "WITHIN" && hasDelays) return false;
+      }
+
+      // 7. Vendor Filter
+      if (filterVendor !== "ALL") {
+        const hasVendor = jc.quotes && jc.quotes.some(q => q.vendorName === filterVendor);
+        const matchesBooking = jc.bookingVendor === filterVendor;
+        if (!hasVendor && !matchesBooking) return false;
+      }
+
+      return true;
+    });
+  }, [jobCards, activeTab, filterSearch, filterCategory, filterPriority, filterPaymentStatus, filterSlaStatus, filterVendor, indents]);
+
+  const filteredCards = processedCards;
 
   // Sitting open helper
   const getDaysOpen = (dateStr: string) => {
@@ -1502,7 +1942,7 @@ export default function JobCardManager({
     // If activeTab is not ALL, and colStage !== activeTab, we filter down for focused Kanban views!
     if (activeTab !== 'ALL' && colStage !== activeTab) return null;
 
-    const colCards = jobCards.filter(jc => jc.stage === colStage);
+    const colCards = processedCards.filter(jc => jc.stage === colStage);
 
     return (
       <div className="flex-1 min-w-[290px] max-w-[340px] bg-slate-50/50 border border-slate-200 rounded-2xl p-4 flex flex-col space-y-4 shadow-sm" id={`kanban-col-${colStage.toLowerCase()}`}>
@@ -1644,6 +2084,143 @@ export default function JobCardManager({
           </motion.div>
         )}
       </AnimatePresence>
+
+
+      {/* Sourcing and Settle Filter Panel Cockpit */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4 text-left">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex-1 relative">
+            <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <Compass className="w-4 h-4 animate-spin-slow" />
+            </span>
+            <input
+              type="text"
+              placeholder="Filter by traveler name, ID, sector routing, PNR ticket code..."
+              value={filterSearch}
+              onChange={e => setFilterSearch(e.target.value)}
+              className="w-full pl-10 pr-4 h-11 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/10 transition"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-1.5">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">CATEGORY:</span>
+              <select
+                value={filterCategory}
+                onChange={e => setFilterCategory(e.target.value)}
+                className="bg-transparent text-xs font-black text-slate-850 uppercase tracking-tight focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">All Categories</option>
+                <option value="DOMESTIC">Domestic</option>
+                <option value="INTERNATIONAL">International</option>
+                <option value="TRAIN">Train</option>
+                <option value="BUS">Bus</option>
+                <option value="CAB">Cab</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-1.5">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">PRIORITY:</span>
+              <select
+                value={filterPriority}
+                onChange={e => setFilterPriority(e.target.value)}
+                className="bg-transparent text-xs font-black text-slate-850 uppercase focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">All Priorities</option>
+                <option value="LOW">Low</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HIGH">High</option>
+                <option value="CRITICAL">Critical</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              className={`px-4.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-wider transition flex items-center gap-1.5 cursor-pointer ${
+                showAdvancedFilters 
+                  ? "bg-slate-900 text-white shadow-sm" 
+                  : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              <span>⚙️</span>
+              Filters {showAdvancedFilters ? "Hide" : "Show"}
+            </button>
+
+            {(filterSearch || filterCategory !== "ALL" || filterPriority !== "ALL" || filterPaymentStatus !== "ALL" || filterSlaStatus !== "ALL" || filterVendor !== "ALL") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterSearch("");
+                  setFilterCategory("ALL");
+                  setFilterPriority("ALL");
+                  setFilterPaymentStatus("ALL");
+                  setFilterSlaStatus("ALL");
+                  setFilterVendor("ALL");
+                }}
+                className="px-4.5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-wider bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 transition cursor-pointer"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Collapsible Advanced Filters Drawer */}
+        <AnimatePresence>
+          {showAdvancedFilters && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden pt-3 border-t border-slate-100"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1 pb-2">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest pl-1">Payment Status</span>
+                  <select
+                    value={filterPaymentStatus}
+                    onChange={e => setFilterPaymentStatus(e.target.value)}
+                    className="w-full h-10 bg-slate-50 border border-slate-200 rounded-xl px-3 text-xs font-black text-slate-850 uppercase cursor-pointer"
+                  >
+                    <option value="ALL">All Payment Statuses</option>
+                    <option value="PENDING">Pending (or Draft)</option>
+                    <option value="READY">Ready</option>
+                    <option value="PAID">Paid</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest pl-1">SLA Turnaround Status</span>
+                  <select
+                    value={filterSlaStatus}
+                    onChange={e => setFilterSlaStatus(e.target.value)}
+                    className="w-full h-10 bg-slate-50 border border-slate-250 rounded-xl px-3 text-xs font-black text-slate-850 uppercase cursor-pointer"
+                  >
+                    <option value="ALL">All SLA States</option>
+                    <option value="WITHIN">Within SLA limits</option>
+                    <option value="DELAYED">Delayed SLA Checkpoints</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest pl-1">Sourced Quote Vendor</span>
+                  <select
+                    value={filterVendor}
+                    onChange={e => setFilterVendor(e.target.value)}
+                    className="w-full h-10 bg-slate-50 border border-slate-200 rounded-xl px-3 text-xs font-black text-slate-850 uppercase cursor-pointer"
+                  >
+                    <option value="ALL">All Quote Vendors</option>
+                    {vendorsList.map(v => (
+                      <option key={v.id} value={v.name}>{v.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
 
       <div className={kanbanView ? "space-y-8" : "grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"}>
@@ -2238,77 +2815,8 @@ export default function JobCardManager({
                   
                   return (
                     <div className="py-6">
-                      <div className={isWorkspaceStep ? "grid grid-cols-1 lg:grid-cols-12 gap-8 items-start" : "space-y-8"}>
-                        {isWorkspaceStep && (
-                          <div className="lg:col-span-4 lg:sticky lg:top-24 space-y-6 text-left">
-                            <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4">
-                              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Indent Reference</span>
-                                <span className="text-[9px] bg-slate-900 text-white font-mono px-2 py-0.5 rounded-full uppercase tracking-wider">{selectedCard.indentId || selectedCard.id}</span>
-                              </div>
-                              
-                              <div className="space-y-3 text-xs">
-                                <div>
-                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Traveler</span>
-                                  <span className="font-black text-slate-955 block">{selectedCard.travelerName} ({localIndent?.employee_code})</span>
-                                  {profileEmployee && (
-                                    <span className="block text-[10px] text-slate-500 font-bold mt-0.5">{profileEmployee.designation} &bull; {profileEmployee.department}</span>
-                                  )}
-                                </div>
-                                
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Route / Sector</span>
-                                    <span className="font-bold text-slate-850 block truncate" title={quoteSector || selectedCard.destination}>{quoteSector || selectedCard.destination}</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Travel Date</span>
-                                    <span className="font-bold text-slate-850 block">
-                                      {localIndent?.travel_date ? new Date(localIndent.travel_date).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}) : 'N/A'}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4 pt-1">
-                                  <div>
-                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Category</span>
-                                    <span className="inline-block bg-slate-200 text-slate-800 text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wider mt-0.5">
-                                      {localIndent?.travel_type || selectedCard.stage}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Priority</span>
-                                    <span className={`inline-block text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wider mt-0.5 ${
-                                      localIndent?.priority === 'CRITICAL' ? 'bg-rose-100 text-rose-700' :
-                                      localIndent?.priority === 'HIGH' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'
-                                    }`}>
-                                      {localIndent?.priority || 'MEDIUM'}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {localIndent?.purpose && (
-                                  <div className="pt-1">
-                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Purpose of Trip</span>
-                                    <span className="text-slate-700 italic block">"{localIndent.purpose}"</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {profileEmployee && profileEmployee.passport_expiry && (
-                              <div className="bg-slate-50 border border-slate-200 rounded-3xl p-4 space-y-2 text-xs text-left">
-                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Compliance Details</span>
-                                <div className="flex items-center gap-1.5 font-bold text-slate-700">
-                                  <span>Passport Valid Until:</span>
-                                  <span className="font-mono text-slate-900 bg-white border border-slate-200 px-1.5 py-0.5 rounded">{new Date(profileEmployee.passport_expiry).toLocaleDateString()}</span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div className={isWorkspaceStep ? "lg:col-span-8 space-y-8 text-left" : "space-y-8"}>
+                      <div className="space-y-8">
+                        <div className="space-y-8 text-left">
                   {activeViewSection === 'OVERVIEW' && (
                     <div className="space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2365,14 +2873,7 @@ export default function JobCardManager({
                           </p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {(() => {
-                              const getInrVal = (qr: JobCardQuote) => {
-                                const val = qr.amount;
-                                if (qr.currency === "USD" || qr.currency === "$") return val * 83;
-                                if (qr.currency === "VND") return val * 0.0035;
-                                if (qr.currency === "NGN") return val * 0.06;
-                                if (qr.currency === "AUD") return val * 55;
-                                return val;
-                              };
+                              const getInrVal = (qr: JobCardQuote) => convertToINR(qr.amount, qr.currency);
                               const sortedList = [...selectedCard.quotes].sort((a, b) => getInrVal(a) - getInrVal(b));
                               const top3Ids = sortedList.slice(0, 3).map(qr => qr.id);
 
@@ -2458,18 +2959,34 @@ export default function JobCardManager({
                         </h4>
 
                         <div className="space-y-8">
-                          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-                            <div className="flex items-center gap-2 mb-4">
+                          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6">
+                            <div className="flex items-center gap-2 mb-2 pb-3 border-b border-slate-100">
                               <div className="w-1.5 h-4 bg-orange-600 rounded-full"></div>
-                              <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-500">1. Vendor & Currency</h5>
+                              <h5 className="text-[11px] font-black uppercase tracking-widest text-slate-950">
+                                {editingQuoteId ? "Modify Quotation Proposal" : "Submit New Bid Proposal"}
+                              </h5>
                             </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                              <div className="md:col-span-1">
+                              <div>
                                 <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Selected Vendor Name</label>
                                 <select
                                   required
                                   value={quoteVendorName}
-                                  onChange={e => setQuoteVendorName(e.target.value)}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setQuoteVendorName(val);
+                                    const vendorObj = vendorsList.find(v => v.name === val);
+                                    if (vendorObj) {
+                                      const emailsList = vendorObj.emails || [];
+                                      const phonesList = vendorObj.phones || [];
+                                      setSelectedBidEmails(emailsList);
+                                      setSelectedBidPhones(phonesList);
+                                    } else {
+                                      setSelectedBidEmails([]);
+                                      setSelectedBidPhones([]);
+                                    }
+                                  }}
                                   className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition cursor-pointer"
                                 >
                                   <option value="">-- Select Vendor --</option>
@@ -2477,27 +2994,10 @@ export default function JobCardManager({
                                     <option key={v.id} value={v.name}>{v.name}</option>
                                   ))}
                                 </select>
-                                {quoteVendorName && (() => {
-                                  const matchedVendor = vendorsList.find(v => v.name === quoteVendorName);
-                                  if (!matchedVendor) return null;
-                                  return (
-                                    <div className="mt-2 text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1">
-                                      <div className="font-bold text-slate-700">Vendor Info:</div>
-                                      {matchedVendor.categories && matchedVendor.categories.length > 0 && (
-                                        <div><span className="font-semibold">Categories:</span> {matchedVendor.categories.join(", ")}</div>
-                                      )}
-                                      {matchedVendor.emails && matchedVendor.emails.length > 0 && (
-                                        <div><span className="font-semibold">Email:</span> {matchedVendor.emails.join(", ")}</div>
-                                      )}
-                                      {matchedVendor.phones && matchedVendor.phones.length > 0 && (
-                                        <div><span className="font-semibold">Phone:</span> {matchedVendor.phones.join(", ")}</div>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
                               </div>
+
                               <div>
-                                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Quotation Date</label>
+                                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Proposal Date</label>
                                 <input 
                                   type="date" 
                                   value={quoteTravelDate} 
@@ -2505,6 +3005,7 @@ export default function JobCardManager({
                                   className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-black text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition"
                                 />
                               </div>
+
                               <div>
                                 <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Billing Currency</label>
                                 <div className="flex gap-2">
@@ -2525,225 +3026,220 @@ export default function JobCardManager({
                                 </div>
                               </div>
                             </div>
-                          </div>
 
-                          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-                            <div className="flex items-center gap-2 mb-4">
-                              <div className="w-1.5 h-4 bg-orange-600 rounded-full"></div>
-                              <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-500">2. Itemized Fare Breakdown & Categories</h5>
-                            </div>
-                            <div className="space-y-4">
-                              <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                                  <div className="md:col-span-5">
-                                    <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Category Selector</label>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {["FLIGHT", "HOTEL", "TRAIN", "CAB", "OTHER"].map(cat => (
-                                        <button
-                                          key={cat}
-                                          type="button"
-                                          onClick={() => {
-                                            setSingleSubCategory(cat as any);
-                                            if (cat === "FLIGHT") setIsAirlineQuote(true);
-                                          }}
-                                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black transition ${
-                                            singleSubCategory === cat 
-                                              ? "bg-orange-600 text-white shadow-sm" 
-                                              : "bg-white text-slate-500 border border-slate-200 hover:border-slate-300"
-                                          }`}
-                                        >
-                                          {cat}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-                                  <div className="md:col-span-4">
-                                    <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Item Label</label>
-                                    <input
-                                      type="text"
-                                      placeholder="Description"
-                                      value={singleSubDesc}
-                                      onChange={e => setSingleSubDesc(e.target.value)}
-                                      className="w-full h-10 bg-white border border-slate-200 rounded-xl px-3 text-xs font-bold"
-                                    />
-                                  </div>
-                                  <div className="md:col-span-3 flex gap-2">
-                                    <div className="flex-1">
-                                      <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Fare Value</label>
-                                      <input
-                                        type="number"
-                                        placeholder="0"
-                                        value={singleSubAmount}
-                                        onChange={e => setSingleSubAmount(e.target.value)}
-                                        className="w-full h-10 bg-white border border-slate-200 rounded-xl px-3 text-xs font-black font-mono"
-                                      />
-                                    </div>
-                                    {singleSubCategory !== "FLIGHT" && (
-                                      <button
-                                        type="button"
-                                        onClick={handleAddSubCost}
-                                        className="h-10 w-10 flex items-center justify-center bg-slate-900 text-white rounded-xl mt-5 hover:bg-slate-800 transition active:scale-95"
-                                      >
-                                        <Plus className="w-4 h-4" />
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {singleSubCategory === "FLIGHT" && (
-                                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-3 border-t border-slate-200/60">
-                                    <div>
-                                      <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Airline</label>
-                                      <input 
-                                        type="text" 
-                                        placeholder="e.g. IndiGo" 
-                                        value={quoteAirline} 
-                                        onChange={e => setQuoteAirline(e.target.value)} 
-                                        className="w-full h-10 bg-white border border-slate-200 rounded-xl px-3 text-[10px] font-bold text-slate-900" 
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Sector</label>
-                                      <input 
-                                        type="text" 
-                                        placeholder="e.g. BOM-DEL" 
-                                        value={quoteSector} 
-                                        onChange={e => setQuoteSector(e.target.value)} 
-                                        className="w-full h-10 bg-white border border-slate-200 rounded-xl px-3 text-[10px] font-bold text-slate-900" 
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Layover (Hrs)</label>
-                                      <input 
-                                        type="text" 
-                                        placeholder="Hrs" 
-                                        value={quoteLayover} 
-                                        onChange={e => setQuoteLayover(e.target.value)} 
-                                        className="w-full h-10 bg-white border border-slate-200 rounded-xl px-3 text-[10px] font-bold text-slate-900" 
-                                      />
-                                    </div>
-                                    <div className="flex items-end">
-                                      <button
-                                        type="button"
-                                        onClick={handleAddSubCost}
-                                        className="w-full h-10 flex items-center justify-center gap-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition active:scale-95 text-[10px] font-black uppercase tracking-widest"
-                                      >
-                                        <Plus className="w-4 h-4" />
-                                        Add Flight Item
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                              <div>
+                                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Total Bid Amount</label>
+                                <input
+                                  type="number"
+                                  placeholder="0"
+                                  value={quoteAmount}
+                                  onChange={e => setQuoteAmount(e.target.value)}
+                                  className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-black font-mono text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition"
+                                />
                               </div>
 
-                              {subCosts.length > 0 ? (
-                                <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                                  {subCosts.map((sub, sIdx) => (
-                                    <div key={sIdx} className="flex items-center justify-between p-4 bg-white hover:bg-slate-50/50 transition">
-                                      <div className="flex items-center gap-3">
-                                        <div className="flex flex-col">
-                                          <div className="flex items-center gap-2">
-                                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${
-                                              sub.category === "FLIGHT" ? "bg-indigo-100 text-indigo-700 font-bold" :
-                                              sub.category === "HOTEL" ? "bg-amber-100 text-amber-700 font-bold" :
-                                              sub.category === "CAB" ? "bg-emerald-100 text-emerald-700 font-bold" :
-                                              "bg-slate-100 text-slate-600 font-bold"
-                                            }`}>
-                                              {sub.category}
-                                            </span>
-                                            <span className="text-xs font-black text-slate-800 uppercase tracking-tight">{sub.description}</span>
-                                          </div>
-                                          {sub.category === "FLIGHT" && sub.airline && (
-                                            <div className="flex items-center gap-2 mt-1">
-                                              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{sub.airline}</span>
-                                              <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-                                              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{sub.sector}</span>
-                                              {sub.layover && (
-                                                <>
-                                                  <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-                                                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{sub.layover}H Layover</span>
-                                                </>
-                                              )}
-                                            </div>
-                                          )}
-                                        </div>
+                              <div>
+                                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Airline Name (Optional)</label>
+                                <input 
+                                  type="text" 
+                                  placeholder="e.g. IndiGo" 
+                                  value={quoteAirline || ""} 
+                                  onChange={e => setQuoteAirline(e.target.value)} 
+                                  className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white" 
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Sector / Route (Optional)</label>
+                                <input 
+                                  type="text" 
+                                  placeholder="e.g. BOM-DEL" 
+                                  value={quoteSector || ""} 
+                                  onChange={e => setQuoteSector(e.target.value)} 
+                                  className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white" 
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Layover / Stops (Optional)</label>
+                                <input 
+                                  type="text" 
+                                  placeholder="e.g. 1 Stop (DOH)" 
+                                  value={quoteLayover || ""} 
+                                  onChange={e => setQuoteLayover(e.target.value)} 
+                                  className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white" 
+                                />
+                              </div>
+                            </div>
+
+                            {/* Multiple choice contact selection block */}
+                            {(() => {
+                              const selectedVendorObj = vendorsList.find(v => v.name === quoteVendorName);
+                              const vendorEmails = selectedVendorObj?.emails || [];
+                              const vendorPhones = selectedVendorObj?.phones || [];
+
+                              if (!quoteVendorName || (vendorEmails.length === 0 && vendorPhones.length === 0)) return null;
+
+                              return (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-5 rounded-2xl border border-slate-200 text-left">
+                                  {vendorEmails.length > 0 && (
+                                    <div>
+                                      <label className="block text-[8px] font-black text-slate-500 uppercase tracking-widest mb-2 font-bold">Select Vendor Contacts (Emails)</label>
+                                      <div className="space-y-2">
+                                        {vendorEmails.map(email => (
+                                          <label key={email} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedBidEmails.includes(email)}
+                                              onChange={e => {
+                                                if (e.target.checked) {
+                                                  setSelectedBidEmails([...selectedBidEmails, email]);
+                                                } else {
+                                                  setSelectedBidEmails(selectedBidEmails.filter(x => x !== email));
+                                                }
+                                              }}
+                                              className="rounded border-slate-350 text-orange-600 focus:ring-orange-500/20"
+                                            />
+                                            <span className="font-mono text-[11px] text-slate-800">{email}</span>
+                                          </label>
+                                        ))}
                                       </div>
-                                      <div className="flex items-center gap-4">
-                                        <span className="text-sm font-black text-slate-900 font-mono">{sub.amount}</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleRemoveSubCost(sIdx)}
-                                          className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg transition"
-                                        >
-                                          <Trash2 className="w-4 h-4" />
+                                    </div>
+                                  )}
+
+                                  {vendorPhones.length > 0 && (
+                                    <div>
+                                      <label className="block text-[8px] font-black text-slate-500 uppercase tracking-widest mb-2 font-bold">Select Vendor Contacts (Phones)</label>
+                                      <div className="space-y-2">
+                                        {vendorPhones.map(phone => (
+                                          <label key={phone} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedBidPhones.includes(phone)}
+                                              onChange={e => {
+                                                if (e.target.checked) {
+                                                  setSelectedBidPhones([...selectedBidPhones, phone]);
+                                                } else {
+                                                  setSelectedBidPhones(selectedBidPhones.filter(x => x !== phone));
+                                                }
+                                              }}
+                                              className="rounded border-slate-350 text-orange-600 focus:ring-orange-500/20"
+                                            />
+                                            <span className="font-mono text-[11px] text-slate-800">{phone}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                            {/* Optional itemized sub-costs list to support the backend list requirement */}
+                            <div className="bg-slate-50/50 border border-slate-200 rounded-2xl p-4 space-y-4 text-left">
+                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block font-bold">Add Itemized Cost Breakdown (Optional)</span>
+                              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                                <div className="md:col-span-4">
+                                  <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 font-bold">Item Type</label>
+                                  <div className="flex gap-1">
+                                    {["FLIGHT", "HOTEL", "CAB", "OTHER"].map(cat => (
+                                      <button
+                                        key={cat}
+                                        type="button"
+                                        onClick={() => setSingleSubCategory(cat as any)}
+                                        className={`px-2 py-1 rounded text-[9px] font-black transition cursor-pointer ${
+                                          singleSubCategory === cat 
+                                            ? "bg-slate-950 text-white shadow-sm" 
+                                            : "bg-white text-slate-500 border border-slate-200"
+                                        }`}
+                                      >
+                                        {cat}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="md:col-span-5">
+                                  <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 font-bold">Item Description</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Economy Ticket"
+                                    value={singleSubDesc}
+                                    onChange={e => setSingleSubDesc(e.target.value)}
+                                    className="w-full h-8 bg-white border border-slate-200 rounded-lg px-2 text-xs font-bold"
+                                  />
+                                </div>
+                                <div className="md:col-span-3 flex gap-2">
+                                  <div className="flex-1">
+                                    <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 font-bold">Amount</label>
+                                    <input
+                                      type="number"
+                                      placeholder="0"
+                                      value={singleSubAmount}
+                                      onChange={e => setSingleSubAmount(e.target.value)}
+                                      className="w-full h-8 bg-white border border-slate-200 rounded-lg px-2 text-xs font-black font-mono"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={handleAddSubCost}
+                                    className="h-8 w-8 flex items-center justify-center bg-slate-900 text-white rounded-lg mt-4.5 hover:bg-slate-800 transition active:scale-95 cursor-pointer"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {subCosts.length > 0 && (
+                                <div className="border border-slate-200 bg-white rounded-xl divide-y divide-slate-100 overflow-hidden mt-2">
+                                  {subCosts.map((sub, sIdx) => (
+                                    <div key={sIdx} className="flex items-center justify-between p-3 text-xs">
+                                      <div className="flex items-center gap-2">
+                                        <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[8px] font-bold text-slate-600">{sub.category}</span>
+                                        <span className="font-bold text-slate-700">{sub.description}</span>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <span className="font-mono font-black">{sub.amount}</span>
+                                        <button type="button" onClick={() => handleRemoveSubCost(sIdx)} className="text-rose-500 hover:bg-rose-50 p-1 rounded cursor-pointer">
+                                          <Trash2 className="w-3.5 h-3.5" />
                                         </button>
                                       </div>
                                     </div>
                                   ))}
-                                  <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Aggregated Total Fare</span>
-                                    <div className="flex items-end gap-2">
-                                      <span className="text-xs font-bold text-orange-500">{quoteCurrency}</span>
-                                      <span className="text-2xl font-black font-mono leading-none">{quoteAmount || "0"}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="py-10 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-slate-50/50">
-                                  <List className="w-6 h-6 text-slate-300 mx-auto mb-2" />
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fare breakdown list is empty</p>
                                 </div>
                               )}
                             </div>
-                          </div>
 
-                          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-                            <div className="flex items-center gap-2 mb-4">
-                              <div className="w-1.5 h-4 bg-orange-600 rounded-full"></div>
-                              <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-950">3. Final Review & Filing</h5>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-[8px] font-black text-slate-900 uppercase tracking-widest mb-1.5 font-bold">Total Quote Value (Summary)</label>
-                                <div className="h-10 bg-slate-50 border border-slate-200 rounded-xl px-3 flex items-center">
-                                  <span className="text-xs font-black text-slate-950 font-mono">{quoteAmount} {quoteCurrency}</span>
-                                </div>
-                              </div>
-                              <div>
-                                <label className="block text-[8px] font-black text-slate-900 uppercase tracking-widest mb-1.5">Quotation Registered By</label>
-                                <div className="h-10 bg-slate-100 border border-slate-200 rounded-xl px-3 flex items-center">
-                                  <span className="text-[10px] font-black text-slate-950 uppercase truncate">{activeUserName}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="bg-slate-900 text-white rounded-[2rem] p-8 flex flex-col md:flex-row items-center gap-6 border border-slate-800">
-                            <div className="flex-1">
-                              <h5 className="text-xl font-black uppercase tracking-tighter text-white">Submit Final Bid</h5>
-                              <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider mt-1">Ensure attachment is uploaded for audit compliance.</p>
-                            </div>
-                            <div className="flex items-center gap-3 w-full md:w-auto">
-                              {editingQuoteId && (
-                                <button 
-                                  type="button" 
-                                  onClick={handleCancelQuoteEdit}
-                                  className="h-14 px-6 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-[10px] uppercase tracking-widest rounded-2xl transition"
-                                >
-                                  Cancel Edit
-                                </button>
-                              )}
-                              <div className="relative">
+                            {/* File Upload and Submission Action Panel */}
+                            <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100">
+                              <div className="flex items-center gap-3">
                                 <input type="file" accept=".pdf,image/*" onChange={e => handleFileChange(e, setQuoteFileBase64, setQuoteFileName)} className="hidden" id="final-quote-file" />
-                                <label htmlFor="final-quote-file" className={`flex items-center gap-2 px-6 py-3 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${quoteFileName ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "border-slate-700 bg-slate-800 text-slate-400 hover:border-orange-500"}`}>
-                                  <Paperclip className="w-5 h-5" />
-                                  <span className="text-[10px] font-black uppercase tracking-widest truncate max-w-[100px]">{quoteFileName || "Attach PDF"}</span>
+                                <label htmlFor="final-quote-file" className={`flex items-center gap-2 px-5 py-2.5 border border-dashed rounded-xl cursor-pointer transition-all ${quoteFileName ? "border-emerald-500 bg-emerald-50 text-emerald-600 font-bold" : "border-slate-350 bg-slate-50 text-slate-500 hover:border-orange-500"}`}>
+                                  <Paperclip className="w-4 h-4" />
+                                  <span className="text-[10px] font-black uppercase tracking-widest truncate max-w-[150px]">{quoteFileName || "Attach Proposal PDF"}</span>
                                 </label>
                               </div>
-                              <button type="button" onClick={handleSubmitQuote} disabled={submittingQuote || !quoteVendorName || !quoteAmount} className="flex-1 md:flex-none h-14 px-10 bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white font-black text-xs uppercase tracking-widest rounded-2xl transition shadow-lg active:scale-95 flex items-center justify-center gap-2">
-                                {submittingQuote ? <RefreshCw className="w-5 h-5 animate-spin" /> : (editingQuoteId ? "Update Proposal" : "Submit Proposal")}
-                                <ArrowRight className="w-4 h-4" />
-                              </button>
+
+                              <div className="flex items-center gap-2 w-full md:w-auto">
+                                {editingQuoteId && (
+                                  <button 
+                                    type="button" 
+                                    onClick={handleCancelQuoteEdit}
+                                    className="h-11 px-5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-[10px] uppercase tracking-widest rounded-xl transition cursor-pointer"
+                                  >
+                                    Cancel Edit
+                                  </button>
+                                )}
+                                <button 
+                                  type="button" 
+                                  onClick={handleSubmitQuote} 
+                                  disabled={submittingQuote || !quoteVendorName || !quoteAmount} 
+                                  className="flex-1 md:flex-none h-11 px-8 bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                  {submittingQuote ? <RefreshCw className="w-4 h-4 animate-spin" /> : (editingQuoteId ? "Update Bid Proposal" : "Submit Bid Proposal")}
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -2797,7 +3293,8 @@ export default function JobCardManager({
                                     const isCheapest = lowestIdx === 0;
                                     const lRank = lowestIdx !== -1 ? `L${lowestIdx + 1}` : null;
 
-                                    const getInrVal = (val: number, cur: string) => {
+                                    const getInrVal = (val: number, cur: string) => convertToINR(val, cur);
+                                    const getInrValOld = (val: number, cur: string) => {
                                       if (cur === "USD" || cur === "$") return val * 83;
                                       if (cur === "VND") return val * 0.0035;
                                       if (cur === "NGN") return val * 0.06;
@@ -2951,7 +3448,8 @@ export default function JobCardManager({
                                     const isCheapest = lowestIdx === 0;
                                     const lRank = lowestIdx !== -1 ? `L${lowestIdx + 1}` : null;
 
-                                    const getInrVal = (val: number, cur: string) => {
+                                    const getInrVal = (val: number, cur: string) => convertToINR(val, cur);
+                                    const getInrValOld = (val: number, cur: string) => {
                                       if (cur === "USD" || cur === "$") return val * 83;
                                       if (cur === "VND") return val * 0.0035;
                                       if (cur === "NGN") return val * 0.06;
@@ -3061,10 +3559,21 @@ export default function JobCardManager({
                           </span>
 
                           {selectedCard.travelApprovalStatus === 'APPROVED' ? (
-                            <div className="p-3 bg-emerald-50 rounded-xl text-emerald-950 font-mono text-[9px] leading-snug">
-                              <span className="block font-black uppercase">✓ APPROVED IN LEVEL 1</span>
-                              <span>By: {selectedCard.travelApprovedBy || "Travel Desk Inspector"}</span>
-                              <span className="block mt-0.5 text-slate-400">{selectedCard.travelApprovedAt}</span>
+                            <div className="space-y-3">
+                              <div className="p-3 bg-emerald-50 rounded-xl text-emerald-950 font-mono text-[9px] leading-snug">
+                                <span className="block font-black uppercase">✓ APPROVED IN LEVEL 1</span>
+                                <span>By: {selectedCard.travelApprovedBy || "Travel Desk Inspector"}</span>
+                                <span className="block mt-0.5 text-slate-400">{selectedCard.travelApprovedAt}</span>
+                              </div>
+                              {(activeRole === 'TRAVEL_APPROVER' || activeRole === 'VP_COMMERCIAL') && (
+                                <button
+                                  onClick={handleL1TravelUnapprove}
+                                  disabled={submittingApproval}
+                                  className="w-full py-2 bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 transition text-[9px] font-black uppercase tracking-wider rounded-lg cursor-pointer"
+                                >
+                                  Rescind L1 Approval
+                                </button>
+                              )}
                             </div>
                           ) : (
                             <div className="space-y-2 pt-2">
@@ -3123,10 +3632,21 @@ export default function JobCardManager({
                               🔒 Locked: Requires L1 Approval first
                             </div>
                           ) : selectedCard.commercialApprovalStatus === 'APPROVED' ? (
-                            <div className="p-3 bg-emerald-50 rounded-xl text-emerald-950 font-mono text-[9px] leading-snug">
-                              <span className="block font-black uppercase">✓ GRANTED VP SIGN-OFF</span>
-                              <span>By: {selectedCard.commercialApprovedBy || "VP Admin"}</span>
-                              <span className="block mt-0.5 text-slate-400">{selectedCard.commercialApprovedAt}</span>
+                            <div className="space-y-3">
+                              <div className="p-3 bg-emerald-50 rounded-xl text-emerald-950 font-mono text-[9px] leading-snug">
+                                <span className="block font-black uppercase">✓ GRANTED VP SIGN-OFF</span>
+                                <span>By: {selectedCard.commercialApprovedBy || "VP Admin"}</span>
+                                <span className="block mt-0.5 text-slate-400">{selectedCard.commercialApprovedAt}</span>
+                              </div>
+                              {activeRole === 'VP_COMMERCIAL' && (
+                                <button
+                                  onClick={handleL2CommercialUnapprove}
+                                  disabled={submittingApproval}
+                                  className="w-full py-2 bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 transition text-[9px] font-black uppercase tracking-wider rounded-lg cursor-pointer"
+                                >
+                                  Rescind L2 Approval
+                                </button>
+                              )}
                             </div>
                           ) : (
                             <div className="space-y-2 pt-2">
@@ -3185,6 +3705,116 @@ export default function JobCardManager({
                           </div>
                         );
                       })()}
+
+                      {/* FORMAL WORK ORDER DISPLAY */}
+                      {selectedCard.commercialApprovalStatus === 'APPROVED' && (
+                        <div className="bg-white border-2 border-slate-900 rounded-3xl p-6 shadow-md space-y-6 text-left relative overflow-hidden my-4">
+                          {/* Top-right status watermark */}
+                          <div className="absolute top-4 right-4 bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">
+                            AUTHORIZED WORKORDER
+                          </div>
+
+                          {/* Letterhead Header */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b-2 border-slate-100">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src="https://res.cloudinary.com/dn6sk8mqh/image/upload/v1779866397/Gemini_Generated_Image_c6yvaxc6yvaxc6yv_hr5guu.png"
+                                alt="Hemraj Industries"
+                                className="w-12 h-12 object-contain rounded-lg border border-slate-200"
+                              />
+                              <div>
+                                <h3 className="text-sm font-black uppercase tracking-wider text-slate-905 leading-none">Hemraj Industries</h3>
+                                <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block mt-1">Corporate Travel & Procurement</span>
+                              </div>
+                            </div>
+                            <div className="text-left sm:text-right font-mono text-[9px] text-slate-400 font-black">
+                              <div>REF ID: WO-{selectedCard.id}</div>
+                              <div>DATE: {selectedCard.commercialApprovedAt ? new Date(selectedCard.commercialApprovedAt).toLocaleDateString() : new Date().toLocaleDateString()}</div>
+                            </div>
+                          </div>
+
+                          {/* Work Order Title */}
+                          <div className="text-center py-2 bg-slate-50 border border-slate-200 rounded-xl">
+                            <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-900 font-serif">TRAVEL WORK ORDER AUTHORIZATION</h4>
+                          </div>
+
+                          {/* Formal Body Text */}
+                          <p className="text-[11px] text-slate-705 leading-relaxed font-sans">
+                            Dear Sourcing Partner / Operations Coordinator,
+                            <br/><br/>
+                            We hereby authorize the ticket issuance and booking execution for the travel request detailed below. This order is issued under the authority of the VP Commercial and is subject to the approved procurement guidelines and cost thresholds. Please proceed with the ticketing operations immediately.
+                          </p>
+
+                          {/* Details Table */}
+                          <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                            <table className="w-full text-[10px] text-left divide-y divide-slate-200">
+                              <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                                <tr className="bg-slate-50/50">
+                                  <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-150 w-1/3">Traveler Details</td>
+                                  <td className="px-4 py-2.5 text-slate-900 font-bold">{selectedCard.travelerName} ({resolvedEmployee?.employee_code || "N/A"})</td>
+                                </tr>
+                                <tr>
+                                  <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-150">Sector / Route</td>
+                                  <td className="px-4 py-2.5 text-slate-900 font-bold">{selectedCard.destination}</td>
+                                </tr>
+                                <tr className="bg-slate-50/50">
+                                  <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-150">Sourced Agency</td>
+                                  <td className="px-4 py-2.5 text-slate-900 font-bold uppercase">{selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId)?.vendorName || "TBD"}</td>
+                                </tr>
+                                <tr>
+                                  <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-150">Approved Budget</td>
+                                  <td className="px-4 py-2.5 text-emerald-700 font-bold">
+                                    {(() => {
+                                      const win = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+                                      return win ? `${win.amount} ${win.currency}` : "N/A";
+                                    })()}
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Directive statement */}
+                          <div className="p-3.5 bg-amber-50/40 border border-amber-200 rounded-2xl text-[10px] text-slate-700 leading-snug font-serif italic">
+                            "You are hereby authorized to proceed with the ticket and voucher bookings for the above traveler. Ensure all booking files, PNR vouchers, and tax invoices are uploaded directly to this job card for subsequent financial reconciliation."
+                          </div>
+
+                          {/* Send Webhook Option */}
+                          <div className="pt-4 border-t border-slate-150 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                              <span>Authorized VP:</span>
+                              <span className="text-slate-700">{selectedCard.commercialApprovedBy || "VP Commercial Admin"}</span>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={handleDownloadWorkOrder}
+                                className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition shadow-md shadow-orange-600/10 cursor-pointer flex items-center gap-1.5"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download WO</span>
+                              </button>
+
+                              {workOrderSentMessage ? (
+                                <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-250 uppercase tracking-wider">
+                                  ✓ {workOrderSentMessage}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={handleSendWorkOrder}
+                                  disabled={sendingWorkOrder}
+                                  className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition shadow-md shadow-slate-900/10 cursor-pointer flex items-center gap-2"
+                                >
+                                  {sendingWorkOrder ? "Sending..." : "Send Work Order"}
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* WORKSPACE USER REMARKS BOX */}
                       <div className="space-y-2">
@@ -3354,32 +3984,30 @@ export default function JobCardManager({
                         
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-550 uppercase mb-1.5">Vendor Name *</label>
-                            <select
-                              required
-                              value={selectedBookingVendor}
-                              onChange={e => setSelectedBookingVendor(e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-bold cursor-pointer"
-                            >
-                              <option value="">-- Select Vendor --</option>
-                              {vendorsList.map(v => (
-                                <option key={v.id} value={v.name}>{v.name}</option>
-                              ))}
-                            </select>
-                            {selectedBookingVendor && (() => {
-                              const matchedVendor = vendorsList.find(v => v.name === selectedBookingVendor);
-                              if (!matchedVendor) return null;
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-bold">Selected Vendor Name</label>
+                            {(() => {
+                              const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+                              const vendorName = winQuote ? winQuote.vendorName : "Not Selected";
+                              const matchedVendor = vendorsList.find(v => v.name === vendorName);
+
                               return (
-                                <div className="mt-2 text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1">
-                                  <div className="font-bold text-slate-700">Vendor Info:</div>
-                                  {matchedVendor.categories && matchedVendor.categories.length > 0 && (
-                                    <div><span className="font-semibold">Categories:</span> {matchedVendor.categories.join(", ")}</div>
-                                  )}
-                                  {matchedVendor.emails && matchedVendor.emails.length > 0 && (
-                                    <div><span className="font-semibold">Email:</span> {matchedVendor.emails.join(", ")}</div>
-                                  )}
-                                  {matchedVendor.phones && matchedVendor.phones.length > 0 && (
-                                    <div><span className="font-semibold">Phone:</span> {matchedVendor.phones.join(", ")}</div>
+                                <div className="space-y-2">
+                                  <div className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-black text-slate-900 uppercase">
+                                    {vendorName}
+                                  </div>
+                                  {matchedVendor && (
+                                    <div className="text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1">
+                                      <div className="font-bold text-slate-700">Vendor Info:</div>
+                                      {matchedVendor.categories && matchedVendor.categories.length > 0 && (
+                                        <div><span className="font-semibold">Categories:</span> {matchedVendor.categories.join(", ")}</div>
+                                      )}
+                                      {matchedVendor.emails && matchedVendor.emails.length > 0 && (
+                                        <div><span className="font-semibold">Email:</span> {matchedVendor.emails.join(", ")}</div>
+                                      )}
+                                      {matchedVendor.phones && matchedVendor.phones.length > 0 && (
+                                        <div><span className="font-semibold">Phone:</span> {matchedVendor.phones.join(", ")}</div>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
                               );
@@ -3572,7 +4200,6 @@ export default function JobCardManager({
                                 </div>
                               </div>
 
-                              {/* ALARM BANNER FOR VARIANCE OVER 10% */}
                               {isHighVariance && (
                                 <div className="p-4 bg-rose-100 border border-rose-350 text-rose-950 rounded-2xl flex items-start gap-3">
                                   <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
@@ -3582,83 +4209,6 @@ export default function JobCardManager({
                                   </div>
                                 </div>
                               )}
-                            </div>
-
-                            {/* QUOTATION COMPARISON BENCHMARKING TABLE */}
-                            <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4">
-                              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                                <div>
-                                  <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider block">Quotations Board</h4>
-                                  <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">Bids submitted by vendors</p>
-                                </div>
-                                <span className="px-3 py-1 bg-slate-100 rounded-full text-[8.5px] font-bold text-slate-600 uppercase">{selectedCard.quotes ? selectedCard.quotes.length : 0} bids</span>
-                              </div>
-                              <div className="overflow-x-auto">
-                                  <table className="w-full text-left font-bold text-xs uppercase tracking-wide">
-                                    <thead>
-                                      <tr className="border-b border-slate-105 text-slate-405 text-[9px] font-black">
-                                        <th className="py-2">Vendor Partner</th>
-                                        <th className="py-2">Agent Name</th>
-                                        <th className="py-2">Airline</th>
-                                        <th className="py-2">Sector / Route</th>
-                                        <th className="py-2">Layover</th>
-                                        <th className="py-2">Travel Date</th>
-                                        <th className="py-2 text-right">Price</th>
-                                        <th className="py-2 text-center">Status</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 font-black text-[11px]">
-                                      {selectedCard.quotes && selectedCard.quotes.length > 0 ? (
-                                        selectedCard.quotes.map((q) => {
-                                          const isWinning = q.id === selectedCard.winningQuoteId;
-                                          return (
-                                            <tr key={q.id} className={`hover:bg-slate-50 transition ${isWinning ? "bg-emerald-50/30" : ""}`}>
-                                              <td className="py-3 text-slate-900 whitespace-normal break-words pr-4">
-                                                <div className="flex items-center gap-1.5 font-extrabold">
-                                                  <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                  <span>{q.vendorName}</span>
-                                                </div>
-                                              </td>
-                                              <td className="py-3 text-slate-700 font-bold whitespace-normal break-words pr-4">
-                                                <span>{q.agentName || "Direct / Link"}</span>
-                                              </td>
-                                              <td className="py-3 text-slate-800 font-bold whitespace-normal break-words pr-4">
-                                                <span>{q.airline || "Direct Carrier"}</span>
-                                              </td>
-                                              <td className="py-3 font-mono text-slate-600 whitespace-normal break-words pr-4">
-                                                <span>{q.sector || selectedCard.destination || "N/A"}</span>
-                                              </td>
-                                              <td className="py-3 text-slate-605 whitespace-normal break-words pr-4">
-                                                <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[8px] font-black">
-                                                  {q.layover || "Nonstop / Direct"}
-                                                </span>
-                                              </td>
-                                              <td className="py-3 font-mono text-slate-850">
-                                                <span>{q.travelDate || "Immediate"}</span>
-                                              </td>
-                                              <td className="py-3 text-right font-mono text-slate-900 font-black text-xs">
-                                                {q.amount} {q.currency}
-                                              </td>
-                                              <td className="py-3 text-center">
-                                                {isWinning ? (
-                                                  <span className="px-2 py-0.5 bg-emerald-100 border border-emerald-300 text-emerald-800 text-[8px] font-black rounded uppercase">Win Quote</span>
-                                                ) : (
-                                                  <span className="px-1.5 py-0.5 bg-slate-150 text-slate-400 text-[8px] font-bold rounded uppercase">Competitor</span>
-                                                )}
-                                              </td>
-                                            </tr>
-                                          );
-                                        })
-                                      ) : (
-                                        <tr>
-                                          <td colSpan={8} className="py-6 text-center text-slate-400 italic">
-                                            No quotations logged for side-by-side comparison.
-                                          </td>
-                                        </tr>
-                                      )}
-                                    </tbody>
-                                  </table>
-                              </div>
                             </div>
 
                             {/* INVOICE INPUT VARIABLES FORM */}

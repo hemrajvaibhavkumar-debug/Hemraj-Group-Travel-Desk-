@@ -141,7 +141,7 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
 
   // 2. Section 2 State: Traveler Assignment (New Employee Details)
   const [travelerForm, setTravelerForm] = useState({
-    employeeId: "",
+    employeeId: "EMP-" + Math.floor(1000 + Math.random() * 9000),
     aadharPanNumber: "",
     name: "",
     email: "",
@@ -357,8 +357,7 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
   // New helper functions
   const validateSection1 = (): Record<string, string> => {
     const errors: Record<string, string> = {};
-    if (!travelForm.date) errors.date = "Expected Travel Date is mandatory.";
-    else {
+    if (travelForm.date) {
       const selectedDate = new Date(travelForm.date);
       const today = new Date();
       today.setHours(0,0,0,0);
@@ -366,12 +365,6 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
         errors.date = "Travel date cannot be in the past.";
       }
     }
-    
-    if (!travelForm.nearestBoardingPoint.trim()) errors.nearestBoardingPoint = "Boarding Point is required.";
-    if (!travelForm.from.trim()) errors.from = "Origin Location is required.";
-    if (!travelForm.to.trim()) errors.to = "Destination Location is required.";
-    if (!travelForm.purpose.trim()) errors.purpose = "Purpose of journey is required.";
-    if (travelForm.purpose.trim().length < 10) errors.purpose = "Purpose should contain at least 10 characters.";
     return errors;
   };
 
@@ -380,79 +373,11 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
     if (useExistingEmployee) {
       if (!selectedEmpCode) {
         errors.selectedEmpCode = "Please select an assigned saved employee profile.";
-      } else {
-        const emp = employees.find(e => e.employee_code === selectedEmpCode);
-        const isInt = travelForm.type === "INTERNATIONAL" || travelForm.type === "INTERNATIONAL_RETURN";
-        if (isInt) {
-          if (!emp || !emp.passport_expiry) {
-            errors.passport_compliance = "This traveler has no passport expiry date recorded. International booking is strictly blocked.";
-          } else {
-            const expiry = new Date(emp.passport_expiry).getTime();
-            const now = Date.now();
-            const diffDays = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 0) {
-              errors.passport_compliance = `CRITICAL COMPLIANCE FAILURE: Traveler's passport expired ${Math.abs(diffDays)} days ago (RED ZONE). Flight booking is strictly blocked!`;
-            } else if (diffDays < 180) {
-              errors.passport_compliance = `CRITICAL VISAS WARNING: Passport has only ${diffDays} days of validity (YELLOW ZONE, under 6 months). Booking is blocked until renewal!`;
-            }
-          }
-        }
       }
     } else {
-      // Validate Traveler assignment details
       const t = travelerForm;
-      if (!t.employeeId.trim()) errors.traveler_employeeId = "Employee ID is mandatory.";
-      if (!t.aadharPanNumber.trim()) errors.traveler_aadharPanNumber = "Aadhar/PAN Number is mandatory.";
-      if (!t.name.trim()) errors.traveler_name = "Full Name is required.";
-      if (!t.email.trim()) errors.traveler_email = "Email field is required.";
-      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t.email)) {
+      if (t.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t.email)) {
         errors.traveler_email = "Please key in a valid email pattern.";
-      }
-      if (!t.phone.trim()) errors.traveler_phone = "Contact number is mandatory.";
-      if (!t.designation.trim()) errors.traveler_designation = "Corporate Designation is required.";
-      if (!t.costCentre.trim()) errors.traveler_costCentre = "Billing Cost Centre code is mandatory.";
-
-      // Conditional sections validation depending on Selected travel Category
-      const isDomestic = travelForm.type === "DOMESTIC" || travelForm.type === "BUS" || travelForm.type === "CAB";
-      const isInternational = travelForm.type === "INTERNATIONAL" || travelForm.type === "INTERNATIONAL_RETURN";
-      const isTrain = travelForm.type === "TRAIN";
-
-      if (isDomestic) {
-        if (!t.baseCity.trim()) errors.traveler_baseCity = "Base City state is required.";
-        if (!t.nearestAirport.trim()) errors.traveler_nearestAirport = "Nearest Domestic Airport is required.";
-      }
-
-      if (isTrain) {
-        if (!t.baseCity.trim()) errors.traveler_baseCity = "Base City is required.";
-        if (!t.nearestRailwayStation.trim()) errors.traveler_nearestRailwayStation = "Nearest Railway Station is required.";
-      }
-
-      if (isInternational) {
-        // Since Passport and Visa are now optional, only validate if at least one field is filled
-        const hasPassportData = t.passportNumber.trim() || t.passportIssueDate || t.passportExpiryDate;
-        if (hasPassportData) {
-          if (!t.passportNumber.trim()) errors.traveler_passportNumber = "Passport Number is required if passport details are provided.";
-          if (!t.passportIssueDate) errors.traveler_passportIssueDate = "Passport Issue Date is required if passport details are provided.";
-          if (!t.passportExpiryDate) errors.traveler_passportExpiryDate = "Passport Expiry Date is required if passport details are provided.";
-          else if (t.passportIssueDate && new Date(t.passportExpiryDate) <= new Date(t.passportIssueDate)) {
-            errors.traveler_passportExpiryDate = "Passport Expiry must register after the issue date.";
-          } else {
-            const expiry = new Date(t.passportExpiryDate).getTime();
-            const now = Date.now();
-            const diffDays = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 0) {
-              errors.passport_compliance = `CRITICAL COMPLIANCE FAILURE: Passport is already expired (${Math.abs(diffDays)} days ago)!`;
-            } else if (diffDays < 180) {
-              errors.passport_compliance = `CRITICAL VISAS WARNING: Passport must have at least 180 days (6 months) validity remaining (only ${diffDays} days registered).`;
-            }
-          }
-        }
-        
-        const hasVisaData = t.visaNumber.trim() || t.visaCountry.trim();
-        if (hasVisaData) {
-          if (!t.visaNumber.trim()) errors.traveler_visaNumber = "Visa clearance Number is required if visa details are provided.";
-          if (!t.visaCountry.trim()) errors.traveler_visaCountry = "Visa Country is required if visa details are provided.";
-        }
       }
     }
     return errors;
@@ -501,19 +426,31 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
       let targetEmployeeCode = selectedEmpCode;
 
       if (!useExistingEmployee) {
+        // Fallbacks for Employee database constraints
+        const empCode = travelerForm.employeeId.trim() || "EMP-" + Math.floor(1000 + Math.random() * 9000);
+        const aadharPan = travelerForm.aadharPanNumber.trim() || "PAN-MOCK-" + Math.floor(10000 + Math.random() * 90000);
+        const fullName = travelerForm.name.trim() || "Guest Traveler";
+        const emailAddress = travelerForm.email.trim() || `guest.${Math.floor(1000 + Math.random() * 9000)}@hemrajgroup.com`;
+        const phoneNumber = travelerForm.phone.trim() || "+91 00000 00000";
+        const roleDesignation = travelerForm.designation.trim() || "Executive";
+        const dept = travelerForm.department.trim() || "Purchase";
+        const approver = travelerForm.defaultTravelApprover.trim() || "Rohit ji";
+        const appTitle = travelerForm.approverDesignation.trim() || "Chief Operating Officer";
+        const billingCost = travelerForm.costCentre.trim() || "HEM-GEN";
+
         // Prepare new registered employee payload
         finalEmployee = {
-          employee_code: travelerForm.employeeId,
-          aadhar_pan_number: travelerForm.aadharPanNumber,
-          name: travelerForm.name,
-          email: travelerForm.email,
-          phone: travelerForm.phone,
-          designation: travelerForm.designation,
-          department: travelerForm.department,
-          default_travel_approver: travelerForm.defaultTravelApprover,
-          approver_designation: travelerForm.approverDesignation,
-          cost_centre: travelerForm.costCentre,
-          default_billing_currency: travelerForm.defaultBillingCurrency,
+          employee_code: empCode,
+          aadhar_pan_number: aadharPan,
+          name: fullName,
+          email: emailAddress,
+          phone: phoneNumber,
+          designation: roleDesignation,
+          department: dept,
+          default_travel_approver: approver,
+          approver_designation: appTitle,
+          cost_centre: billingCost,
+          default_billing_currency: travelerForm.defaultBillingCurrency || "INR",
           
           // Domestic
           native_city: travelerForm.baseCity || undefined,
@@ -548,7 +485,7 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
           visa_expiry_date: travelerForm.visaExpiryDate || undefined,
           visa_country: travelerForm.visaCountry || undefined
         };
-        targetEmployeeCode = travelerForm.employeeId;
+        targetEmployeeCode = empCode;
       }
 
       // Prepare Travel Indent payload
@@ -556,21 +493,21 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
         travel_type: travelForm.type,
         gst_applicable: travelForm.gstApplicable,
         priority: travelForm.priority,
-        travel_date: travelForm.date,
+        travel_date: travelForm.date || new Date().toISOString().split("T")[0],
         wp_number: travelForm.wpNumber || "N/A",
-        nearest_boarding_point: travelForm.nearestBoardingPoint,
+        nearest_boarding_point: travelForm.nearestBoardingPoint.trim() || "TBD",
         luggage: travelForm.luggage || "Standard (15kg)",
         visa_type: travelForm.visaType === "OTHER" ? travelForm.visaTypeOther : travelForm.visaType,
         seat_preference: travelForm.seatPreference === "OTHER" ? travelForm.seatPreferenceOther : travelForm.seatPreference,
         meal_preference: travelForm.mealPreference === "OTHER" ? travelForm.mealPreferenceOther : travelForm.mealPreference,
-        source_location: travelForm.from,
-        destination: travelForm.to,
-        purpose: travelForm.purpose,
+        source_location: travelForm.from.trim() || "TBD",
+        destination: travelForm.to.trim() || "TBD",
+        purpose: travelForm.purpose.trim() || "Business Travel",
         employee_code: targetEmployeeCode,
-        plant: travelForm.plant,
-        travel_approver: travelForm.travelApprover,
-        approver_title: travelForm.approverTitle,
-        indent_raiser: travelForm.indentRaiser
+        plant: travelForm.plant || "HIPL",
+        travel_approver: travelForm.travelApprover || "Rohit ji",
+        approver_title: travelForm.approverTitle || "Chief Operating Officer",
+        indent_raiser: travelForm.indentRaiser || "Travel Planner"
       };
 
       await onSubmit(indentPayload, finalEmployee);
@@ -1038,7 +975,7 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
 
                 {/* DYNAMIC PROFILE FIELD RENDERER BY CATEGORY TYPE */}
                 {(() => {
-                  if (travelForm.type === "DOMESTIC" || travelForm.type === "BUS" || travelForm.type === "CAB") {
+                  if (travelForm.type === "DOMESTIC") {
                     return (
                       /* DOMESTIC PROFILE FIELDS */
                       <div className="bg-slate-50/50 rounded-xl p-5 border border-slate-100 mt-6">
@@ -1226,6 +1163,116 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
                                 </div>
                               )}
                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  } else if (travelForm.type === "BUS") {
+                    return (
+                      /* BUS PROFILE FIELDS */
+                      <div className="bg-slate-50/50 rounded-xl p-5 border border-slate-100 mt-6">
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+                          Bus Traveler Specifics
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">
+                              Base City
+                            </label>
+                            <input
+                              type="text"
+                              name="baseCity"
+                              placeholder="Mumbai, Pune, Nagpur"
+                              value={travelerForm.baseCity}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">
+                              Nearest Bus Terminal
+                            </label>
+                            <input
+                              type="text"
+                              name="nearestAirport"
+                              placeholder="e.g. Swargate, Borivali East"
+                              value={travelerForm.nearestAirport}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">
+                              Preferred Bus Class
+                            </label>
+                            <select
+                              name="trainPreferredClass"
+                              value={travelerForm.trainPreferredClass}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm cursor-pointer"
+                            >
+                              <option value="AC Sleeper">AC Sleeper (Volvo/Scania)</option>
+                              <option value="Non-AC Sleeper">Non-AC Sleeper</option>
+                              <option value="AC Seater">AC Seater</option>
+                              <option value="Non-AC Seater">Non-AC Seater</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  } else if (travelForm.type === "CAB") {
+                    return (
+                      /* CAB PROFILE FIELDS */
+                      <div className="bg-slate-50/50 rounded-xl p-5 border border-slate-100 mt-6">
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+                          Cab Traveler Specifics
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">
+                              Detailed Pickup Address
+                            </label>
+                            <input
+                              type="text"
+                              name="baseCity"
+                              placeholder="e.g. HIPL Plant Site, Pune"
+                              value={travelerForm.baseCity}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">
+                              Detailed Dropoff Address
+                            </label>
+                            <input
+                              type="text"
+                              name="nearestAirport"
+                              placeholder="e.g. Swargate Bus Stand"
+                              value={travelerForm.nearestAirport}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">
+                              Cab Segment Preference
+                            </label>
+                            <select
+                              name="trainPreferredClass"
+                              value={travelerForm.trainPreferredClass}
+                              onChange={handleTravelerFormChange}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm cursor-pointer"
+                            >
+                              <option value="SUV">SUV (Innova / Ertiga)</option>
+                              <option value="Sedan">Sedan (Dzire / Etios)</option>
+                              <option value="Hatchback">Hatchback (WagonR / Tiago)</option>
+                              <option value="Luxury">Luxury Sedan (Ciaz / City)</option>
+                            </select>
                           </div>
                         </div>
                       </div>

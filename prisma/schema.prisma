@@ -229,6 +229,8 @@ model JobCardQuote {
   layover        String?
   travelDate     String?
   agentName      String?
+  selectedEmails Json?
+  selectedPhones Json?
 
   // Relations
   jobCard        JobCard   @relation(fields: [jobCardId], references: [id], onDelete: Cascade)

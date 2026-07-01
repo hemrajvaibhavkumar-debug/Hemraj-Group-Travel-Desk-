@@ -124,6 +124,8 @@ export interface JobCardQuote {
   layover?: string;
   travelDate?: string;
   agentName?: string;
+  selectedEmails?: string[];
+  selectedPhones?: string[];
 }
 
 export interface AuditLogEntry {

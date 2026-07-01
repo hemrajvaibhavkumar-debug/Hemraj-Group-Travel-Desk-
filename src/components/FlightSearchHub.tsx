@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Plane, Calendar, Info, Loader2, CheckCircle2, AlertCircle, Database, ChevronRight } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Plane, Calendar, Info, Loader2, CheckCircle2, AlertCircle, Database, ChevronRight, Bot, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface Flight {
@@ -14,9 +14,17 @@ interface Flight {
   price: number;
   currency: string;
   date: string;
+  sourceApi?: "duffel" | "aviationstack";
+  terminal?: string | null;
+  gate?: string | null;
+  status?: string;
 }
 
-export default function FlightSearchHub() {
+interface FlightSearchHubProps {
+  forexRates?: Record<string, number>;
+}
+
+export default function FlightSearchHub({ forexRates }: FlightSearchHubProps) {
   const [source, setSource] = useState("DEL");
   const [destination, setDestination] = useState("LOS");
   const [date, setDate] = useState("2026-07-10");
@@ -31,13 +39,30 @@ export default function FlightSearchHub() {
   const [currency, setCurrency] = useState<"INR" | "USD" | "EUR" | "AUD" | "NGN" | "VND">("USD");
   const [hoveredFlightId, setHoveredFlightId] = useState<string | null>(null);
 
+  // Sorting & Tab filters states
+  const [activeTab, setActiveTab] = useState<"duffel" | "aviationstack">("duffel");
+  const [sortBy, setSortBy] = useState<"ai" | "cheapest" | "fastest" | "earliest">("cheapest");
+  const [aiPick, setAiPick] = useState<{ bestFlightId: string; reasoning: string } | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  // Live forex calculations (API returns base: EUR)
+  const rates = forexRates || {
+    USD: 1.0825,
+    INR: 90.35,
+    AUD: 1.6312,
+    NGN: 1625.5,
+    VND: 27550.0,
+    EUR: 1.0
+  };
+  const usdRate = rates["USD"] || 1.0825;
+
   const currencyRates: Record<string, number> = {
     USD: 1.0,
-    INR: 83.3,
-    EUR: 0.91,
-    AUD: 1.50,
-    NGN: 1520.0,
-    VND: 25400.0
+    INR: (rates["INR"] || 90.35) / usdRate,
+    EUR: (rates["EUR"] || 1.0) / usdRate,
+    AUD: (rates["AUD"] || 1.6312) / usdRate,
+    NGN: (rates["NGN"] || 1625.5) / usdRate,
+    VND: (rates["VND"] || 27550.0) / usdRate
   };
 
   const currencySymbols: Record<string, string> = {
@@ -65,6 +90,7 @@ export default function FlightSearchHub() {
     }
     setErrorText("");
     setLoading(true);
+    setAiPick(null);
     try {
       const response = await fetch("/api/flights/search", {
         method: "POST",
@@ -98,19 +124,103 @@ export default function FlightSearchHub() {
     }
   };
 
+  // Trigger OpenRouter AI recommendation for filtered list of flights
+  useEffect(() => {
+    if (flights.length > 0) {
+      const currentFiltered = flights.filter(f => {
+        const isDuffel = f.sourceApi === "duffel" || f.id?.startsWith("DF-") || f.currency === "USD";
+        const matchTab = activeTab === "duffel" ? isDuffel : !isDuffel;
+        return f.date === selectedDate && matchTab;
+      });
+
+      if (currentFiltered.length > 0) {
+        const fetchAi = async () => {
+          setAiLoading(true);
+          try {
+            const res = await fetch("/api/flights/ai-recommend", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ flights: currentFiltered })
+            });
+            if (res.ok) {
+              const resData = await res.json();
+              if (resData.success && resData.recommendation) {
+                setAiPick(resData.recommendation);
+                return;
+              }
+            }
+            setAiPick(null);
+          } catch (err) {
+            console.error("AI recommend fetch error:", err);
+            setAiPick(null);
+          } finally {
+            setAiLoading(false);
+          }
+        };
+        fetchAi();
+      } else {
+        setAiPick(null);
+      }
+    } else {
+      setAiPick(null);
+    }
+  }, [flights, selectedDate, activeTab]);
+
   const dateLowestPrices = React.useMemo(() => {
     const map: Record<string, number> = {};
     flights.forEach(f => {
-      if (!map[f.date] || f.price < map[f.date]) {
-        map[f.date] = f.price;
+      const isDuffel = f.sourceApi === "duffel" || f.id?.startsWith("DF-") || f.currency === "USD";
+      const matchTab = activeTab === "duffel" ? isDuffel : !isDuffel;
+      if (matchTab) {
+        if (!map[f.date] || f.price < map[f.date]) {
+          map[f.date] = f.price;
+        }
       }
     });
     return Object.entries(map).sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime());
-  }, [flights]);
+  }, [flights, activeTab]);
 
   const filteredFlights = React.useMemo(() => {
-    return flights.filter(f => f.date === selectedDate);
-  }, [flights, selectedDate]);
+    const onDate = flights.filter(f => {
+      const isDuffel = f.sourceApi === "duffel" || f.id?.startsWith("DF-") || f.currency === "USD";
+      const matchTab = activeTab === "duffel" ? isDuffel : !isDuffel;
+      return f.date === selectedDate && matchTab;
+    });
+
+    const getDurationMinutes = (durationStr: string) => {
+      let mins = 0;
+      const hourMatch = durationStr.match(/(\d+)\s*h/i);
+      const minMatch = durationStr.match(/(\d+)\s*m/i);
+      if (hourMatch) mins += Number(hourMatch[1]) * 60;
+      if (minMatch) mins += Number(minMatch[1]);
+      return mins || 120;
+    };
+
+    const getTimeMinutes = (timeStr: string) => {
+      const parts = timeStr.split(":");
+      if (parts.length >= 2) {
+        return Number(parts[0]) * 60 + Number(parts[1]);
+      }
+      return 540;
+    };
+
+    return [...onDate].sort((a, b) => {
+      if (sortBy === "ai" && aiPick) {
+        if (a.id === aiPick.bestFlightId) return -1;
+        if (b.id === aiPick.bestFlightId) return 1;
+      }
+      if (sortBy === "cheapest" || sortBy === "ai") {
+        return a.price - b.price;
+      }
+      if (sortBy === "fastest") {
+        return getDurationMinutes(a.duration) - getDurationMinutes(b.duration);
+      }
+      if (sortBy === "earliest") {
+        return getTimeMinutes(a.departureTime) - getTimeMinutes(b.departureTime);
+      }
+      return 0;
+    });
+  }, [flights, selectedDate, activeTab, sortBy, aiPick]);
 
   const formatDisplayDate = (dStr: string) => {
     try {
@@ -293,36 +403,102 @@ export default function FlightSearchHub() {
                 animate={{ opacity: 1, y: 0 }}
                 className="space-y-6 text-left"
               >
-                {/* Search Metadata Banner */}
-                <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-xs">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Query:</span>
-                    <span className="text-[10px] font-black bg-orange-500/10 text-orange-600 border border-orange-500/20 px-3 py-1 rounded-full uppercase font-mono">
-                      {source} &rarr; {destination}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Currency:</span>
-                    <select
-                      value={currency}
-                      onChange={e => setCurrency(e.target.value as any)}
-                      className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-[10px] font-black text-slate-700 focus:outline-none focus:border-orange-500 cursor-pointer shadow-2xs font-mono"
+                        {/* Sort Results Control Bar */}
+                <div className="bg-slate-950 border border-slate-900 rounded-3xl p-5 flex flex-wrap items-center justify-start gap-4 shadow-xl text-white">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sort Results:</span>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSortBy("ai")}
+                      className={`flex items-center gap-2 px-4.5 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-150 cursor-pointer ${
+                        sortBy === "ai"
+                          ? "bg-blue-600 text-white shadow-lg shadow-blue-600/35 border border-blue-500"
+                          : "bg-slate-900 border border-slate-800 text-slate-350 hover:bg-slate-850 hover:text-white"
+                      }`}
                     >
-                      <option value="INR">INR (₹)</option>
-                      <option value="USD">USD ($)</option>
-                      <option value="EUR">EUR (€)</option>
-                      <option value="AUD">AUD (A$)</option>
-                      <option value="NGN">NGN (₦)</option>
-                      <option value="VND">VND (₫)</option>
-                    </select>
+                      <Bot className="w-3.5 h-3.5" />
+                      AI Best Pick
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortBy("cheapest")}
+                      className={`flex items-center gap-2 px-4.5 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-150 cursor-pointer ${
+                        sortBy === "cheapest"
+                          ? "bg-blue-600 text-white shadow-lg shadow-blue-600/35 border border-blue-500"
+                          : "bg-slate-900 border border-slate-800 text-slate-350 hover:bg-slate-850 hover:text-white"
+                      }`}
+                    >
+                      <span>💵</span>
+                      Cheapest Fares
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortBy("fastest")}
+                      className={`flex items-center gap-2 px-4.5 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-150 cursor-pointer ${
+                        sortBy === "fastest"
+                          ? "bg-blue-600 text-white shadow-lg shadow-blue-600/35 border border-blue-500"
+                          : "bg-slate-900 border border-slate-800 text-slate-350 hover:bg-slate-850 hover:text-white"
+                      }`}
+                    >
+                      <span>⚡</span>
+                      Fastest Duration
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortBy("earliest")}
+                      className={`flex items-center gap-2 px-4.5 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-150 cursor-pointer ${
+                        sortBy === "earliest"
+                          ? "bg-blue-600 text-white shadow-lg shadow-blue-600/35 border border-blue-500"
+                          : "bg-slate-900 border border-slate-800 text-slate-350 hover:bg-slate-850 hover:text-white"
+                      }`}
+                    >
+                      <span>📅</span>
+                      Earliest Departure
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub Tab Selection & Currency Dropdown */}
+                <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("duffel")}
+                      className={`px-5 py-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition cursor-pointer ${
+                        activeTab === "duffel"
+                          ? "bg-blue-600 text-white shadow-md shadow-blue-600/20"
+                          : "bg-white border border-slate-200 text-slate-655 hover:bg-slate-50"
+                      }`}
+                    >
+                      Priced Offers (Duffel API)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("aviationstack")}
+                      className={`px-5 py-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition cursor-pointer ${
+                        activeTab === "aviationstack"
+                          ? "bg-blue-600 text-white shadow-md shadow-blue-600/20"
+                          : "bg-white border border-slate-200 text-slate-655 hover:bg-slate-50"
+                      }`}
+                    >
+                      Flight Schedules (Aviationstack API)
+                    </button>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Source:</span>
-                    <span className="text-[9px] font-black text-slate-700 uppercase tracking-widest bg-slate-50 border border-slate-250 px-3 py-1 rounded-full">
-                      🔌 {searchMethod}
-                    </span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">CURRENCY:</span>
+                    <select
+                      value={currency}
+                      onChange={e => setCurrency(e.target.value as any)}
+                      className="bg-white border border-slate-250 rounded-2xl px-4 py-2.5 text-xs font-black text-slate-700 focus:outline-none focus:border-orange-500 cursor-pointer shadow-2xs font-mono"
+                    >
+                      <option value="INR">INR (₹) - Indian Rupee</option>
+                      <option value="USD">USD ($) - US Dollar</option>
+                      <option value="EUR">EUR (€) - Euro</option>
+                      <option value="AUD">AUD (A$) - Australian Dollar</option>
+                      <option value="NGN">NGN (₦) - Nigerian Naira</option>
+                      <option value="VND">VND (₫) - Vietnamese Dong</option>
+                    </select>
                   </div>
                 </div>
 
@@ -339,7 +515,7 @@ export default function FlightSearchHub() {
                             key={dStr}
                             type="button"
                             onClick={() => setSelectedDate(dStr)}
-                            className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all text-center relative ${
+                            className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all text-center relative cursor-pointer ${
                               isActive
                                 ? "bg-orange-600/10 border-orange-500/60 text-orange-655 font-bold shadow-xs"
                                 : "bg-white border-slate-200 hover:border-slate-300 text-slate-500 hover:text-slate-800"
@@ -360,6 +536,28 @@ export default function FlightSearchHub() {
                   </div>
                 )}
 
+                {/* AI Recommendation Explanation Card */}
+                {aiPick && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-3xl p-5 flex items-start gap-4 shadow-2xs"
+                  >
+                    <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-md shrink-0">
+                      <Sparkles className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-blue-900 flex items-center gap-1.5 leading-none">
+                        🤖 AI Best Pick Recommendation
+                        {aiLoading && <Loader2 className="w-3 h-3 animate-spin text-blue-500" />}
+                      </h4>
+                      <p className="text-xs text-slate-700 mt-2 font-medium leading-relaxed">
+                        {aiPick.reasoning}
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Flights List for selected date */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between px-1">
@@ -376,8 +574,18 @@ export default function FlightSearchHub() {
                       filteredFlights.map((flight) => (
                         <div
                           key={flight.id}
-                          className="bg-white border border-slate-200 hover:border-slate-300 rounded-3xl p-5 flex flex-col md:flex-row items-center justify-between gap-6 transition-all shadow-xs"
+                          className={`border rounded-3xl p-5 flex flex-col md:flex-row items-center justify-between gap-6 transition-all relative ${
+                            aiPick && flight.id === aiPick.bestFlightId
+                              ? "border-blue-500 ring-2 ring-blue-500/10 shadow-lg shadow-blue-500/5 bg-slate-50/50"
+                              : "bg-white border-slate-200 hover:border-slate-300 shadow-xs"
+                          }`}
                         >
+                          {aiPick && flight.id === aiPick.bestFlightId && (
+                            <div className="absolute -top-3 left-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full shadow-md flex items-center gap-1.5 z-10">
+                              <Sparkles className="w-2.5 h-2.5 animate-pulse" />
+                              AI Recommended Best Pick
+                            </div>
+                          )}
                           {/* Airline info */}
                           <div className="flex items-center gap-4 w-full md:w-auto text-left">
                             <div className="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 font-black text-sm shrink-0">
