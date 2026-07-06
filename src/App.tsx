@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { TravelIndent, Employee, JobCard, RbacUser, RbacSettings, Vendor } from "./types";
+import { useAuth } from "./context/AuthContext";
+import Login from "./components/Login";
 import { usePersistedState } from "./hooks/usePersistedState";
 import IndentConsole from "./components/IndentConsole";
 import IndentForm from "./components/IndentForm";
@@ -38,12 +40,14 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
+  const { user, isAuthenticated, loading: authLoading, logout, hasPermission } = useAuth();
+
   // RBAC & Settings database states
   const [rbacUsers, setRbacUsers] = useState<RbacUser[]>([]);
   const [rbacSettings, setRbacSettings] = useState<RbacSettings | null>(null);
 
   // Computed states derived from custom DB configurations
-  const activeRole = rbacUsers.find(u => u.email === rbacSettings?.activeSimulatedEmail)?.role || "TRAVEL_DESK";
+  const activeRole = user ? user.role : "TRAVEL_DESK";
   const senderEmail = rbacSettings?.senderEmail || "travel-desk@hemraj-group.com";
   const ccRecipients = rbacSettings?.ccRecipients || "compliance-cc@hemraj-group.com, travel-archive@hemraj-group.com";
 
@@ -162,9 +166,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchData();
-    fetchForexRates();
-  }, []);
+    if (isAuthenticated) {
+      fetchData();
+      fetchForexRates();
+    }
+  }, [isAuthenticated]);
 
   // Post new Indent (and optional New Traveler Profile employee)
   const handleCreateIndent = async (indent: Partial<TravelIndent>, employee?: Employee) => {
@@ -408,6 +414,59 @@ export default function App() {
     }
   };
 
+  const checkPagePermission = (view: string): boolean => {
+    switch (view) {
+      case "indents":
+      case "jobcards":
+      case "passports":
+        return hasPermission("VIEW_INDENTS");
+      case "create":
+        return hasPermission("CREATE_INDENT");
+      case "employees":
+        return hasPermission("MANAGE_EMPLOYEES");
+      case "settings":
+        return hasPermission("MANAGE_SETTINGS");
+      case "flight-search":
+        return hasPermission("CREATE_INDENT") || hasPermission("VIEW_INDENTS");
+      case "dashboard":
+      default:
+        return true;
+    }
+  };
+
+  const renderAccessDenied = () => (
+    <div className="py-24 text-center max-w-md mx-auto space-y-6">
+      <div className="w-16 h-16 bg-rose-105 border border-rose-200 text-rose-600 rounded-2xl flex items-center justify-center shadow-sm mx-auto">
+        <ShieldAlert className="w-8 h-8 animate-pulse" />
+      </div>
+      <div>
+        <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Access Restricted</h3>
+        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1.5 leading-relaxed">
+          Your current user role (<strong>{activeRole.replace('_', ' ')}</strong>) does not have the required permissions to access this control module. Please contact a system administrator to adjust your credentials in Settings.
+        </p>
+      </div>
+      <button
+        onClick={() => setCurrentView("dashboard")}
+        className="px-4 py-2 bg-slate-900 hover:bg-slate-850 text-white font-black text-[10px] uppercase tracking-wider rounded-xl transition cursor-pointer"
+      >
+        Return to Dashboard
+      </button>
+    </div>
+  );
+
+  if (authLoading) {
+    return (
+      <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center">
+        <RefreshCw className="w-8 h-8 text-orange-500 animate-spin mb-3" />
+        <p className="text-slate-400 font-black text-xs uppercase tracking-widest font-sans">Validating secure session...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
+
   return (
     <div className="h-screen w-screen bg-slate-50 flex flex-col font-sans text-slate-900 overflow-hidden">
       
@@ -492,18 +551,20 @@ export default function App() {
                 </h1>
                 <p className="mt-2 text-[13px] font-black text-slate-950 tracking-tight uppercase">Travel Desk</p>
               </div>              <div className="px-6 pb-2 text-[9px] font-black text-slate-900 uppercase tracking-widest mt-6">Operations</div>
-              <button
-                onClick={() => { setCurrentView("flight-search"); setIsMobileMenuOpen(false); }}
-                id="btn-nav-flight-search"
-                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
-                  currentView === "flight-search"
-                    ? "bg-slate-900 text-white shadow-lg font-black"
-                    : "text-slate-900 hover:bg-slate-50 font-black"
-                }`}
-              >
-                {currentView === "flight-search" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
-                <span>Flight Search</span>
-              </button>
+              {(hasPermission("CREATE_INDENT") || hasPermission("VIEW_INDENTS")) && (
+                <button
+                  onClick={() => { setCurrentView("flight-search"); setIsMobileMenuOpen(false); }}
+                  id="btn-nav-flight-search"
+                  className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                    currentView === "flight-search"
+                      ? "bg-slate-900 text-white shadow-lg font-black"
+                      : "text-slate-900 hover:bg-slate-50 font-black"
+                  }`}
+                >
+                  {currentView === "flight-search" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                  <span>Flight Search</span>
+                </button>
+              )}
 
               <button
                 onClick={() => { setCurrentView("dashboard"); setIsMobileMenuOpen(false); }}
@@ -518,86 +579,102 @@ export default function App() {
                 <span>Dashboard</span>
               </button>
 
-              <button
-                onClick={() => { setCurrentView("create"); setIsMobileMenuOpen(false); }}
-                id="btn-nav-create"
-                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
-                  currentView === "create"
-                    ? "bg-slate-900 text-white shadow-lg font-black"
-                    : "text-slate-900 hover:bg-slate-50 font-black"
-                }`}
-              >
-                {currentView === "create" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
-                <span>New Request</span>
-              </button>
+              {hasPermission("CREATE_INDENT") && (
+                <button
+                  onClick={() => { setCurrentView("create"); setIsMobileMenuOpen(false); }}
+                  id="btn-nav-create"
+                  className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                    currentView === "create"
+                      ? "bg-slate-900 text-white shadow-lg font-black"
+                      : "text-slate-900 hover:bg-slate-50 font-black"
+                  }`}
+                >
+                  {currentView === "create" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                  <span>New Request</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => { setCurrentView("indents"); setIsMobileMenuOpen(false); }}
-                id="btn-nav-indents"
-                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
-                  currentView === "indents"
-                    ? "bg-slate-900 text-white shadow-lg font-black"
-                    : "text-slate-900 hover:bg-slate-50 font-black"
-                }`}
-              >
-                {currentView === "indents" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
-                <span>Indent Console</span>
-              </button>
+              {hasPermission("VIEW_INDENTS") && (
+                <button
+                  onClick={() => { setCurrentView("indents"); setIsMobileMenuOpen(false); }}
+                  id="btn-nav-indents"
+                  className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                    currentView === "indents"
+                      ? "bg-slate-900 text-white shadow-lg font-black"
+                      : "text-slate-900 hover:bg-slate-50 font-black"
+                  }`}
+                >
+                  {currentView === "indents" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                  <span>Indent Console</span>
+                </button>
+              )}
 
 
-              <button
-                onClick={() => { setCurrentView("jobcards"); setIsMobileMenuOpen(false); }}
-                id="btn-nav-jobcards"
-                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
-                  currentView === "jobcards"
-                    ? "bg-slate-900 text-white shadow-lg font-black"
-                    : "text-slate-900 hover:bg-slate-50 font-black"
-                }`}
-              >
-                {currentView === "jobcards" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
-                <span>Job Card</span>
-              </button>
+              {hasPermission("VIEW_INDENTS") && (
+                <button
+                  onClick={() => { setCurrentView("jobcards"); setIsMobileMenuOpen(false); }}
+                  id="btn-nav-jobcards"
+                  className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                    currentView === "jobcards"
+                      ? "bg-slate-900 text-white shadow-lg font-black"
+                      : "text-slate-900 hover:bg-slate-50 font-black"
+                  }`}
+                >
+                  {currentView === "jobcards" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                  <span>Job Card</span>
+                </button>
+              )}
 
-              <div className="px-6 pb-2 text-[9px] font-black text-slate-900 uppercase tracking-widest mt-6">Compliance</div>
-              <button
-                onClick={() => { setCurrentView("passports"); setIsMobileMenuOpen(false); }}
-                id="btn-nav-passports"
-                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
-                  currentView === "passports"
-                    ? "bg-slate-900 text-white shadow-lg font-black"
-                    : "text-slate-900 hover:bg-slate-50 font-black"
-                }`}
-              >
-                {currentView === "passports" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
-                <span>Passport Check</span>
-              </button>
+              {hasPermission("VIEW_INDENTS") && (
+                <div className="px-6 pb-2 text-[9px] font-black text-slate-900 uppercase tracking-widest mt-6">Compliance</div>
+              )}
+              {hasPermission("VIEW_INDENTS") && (
+                <button
+                  onClick={() => { setCurrentView("passports"); setIsMobileMenuOpen(false); }}
+                  id="btn-nav-passports"
+                  className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                    currentView === "passports"
+                      ? "bg-slate-900 text-white shadow-lg font-black"
+                      : "text-slate-900 hover:bg-slate-50 font-black"
+                  }`}
+                >
+                  {currentView === "passports" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                  <span>Passport Check</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => { setCurrentView("employees"); setIsMobileMenuOpen(false); }}
-                id="btn-nav-employees"
-                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
-                  currentView === "employees"
-                    ? "bg-slate-900 text-white shadow-lg font-black"
-                    : "text-slate-900 hover:bg-slate-50 font-black"
-                }`}
-              >
-                {currentView === "employees" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
-                <span>Employees</span>
-              </button>
+              {hasPermission("MANAGE_EMPLOYEES") && (
+                <button
+                  onClick={() => { setCurrentView("employees"); setIsMobileMenuOpen(false); }}
+                  id="btn-nav-employees"
+                  className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                    currentView === "employees"
+                      ? "bg-slate-900 text-white shadow-lg font-black"
+                      : "text-slate-900 hover:bg-slate-50 font-black"
+                  }`}
+                >
+                  {currentView === "employees" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                  <span>Employees</span>
+                </button>
+              )}
 
-              <div className="px-6 pb-2 text-[9px] font-black text-slate-900 uppercase tracking-widest mt-6">Administration</div>
-              <button
-                onClick={() => { setCurrentView("settings"); setIsMobileMenuOpen(false); }}
-                id="btn-nav-settings"
-                className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
-                  currentView === "settings"
-                    ? "bg-slate-900 text-white shadow-lg font-black"
-                    : "text-slate-900 hover:bg-slate-50 font-black"
-                }`}
-              >
-                {currentView === "settings" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
-                <span>Settings</span>
-              </button>
+              {hasPermission("MANAGE_SETTINGS") && (
+                <div className="px-6 pb-2 text-[9px] font-black text-slate-900 uppercase tracking-widest mt-6">Administration</div>
+              )}
+              {hasPermission("MANAGE_SETTINGS") && (
+                <button
+                  onClick={() => { setCurrentView("settings"); setIsMobileMenuOpen(false); }}
+                  id="btn-nav-settings"
+                  className={`w-full flex items-center px-4 py-3 rounded-xl transition-all text-left uppercase tracking-wider text-xs ${
+                    currentView === "settings"
+                      ? "bg-slate-900 text-white shadow-lg font-black"
+                      : "text-slate-900 hover:bg-slate-50 font-black"
+                  }`}
+                >
+                  {currentView === "settings" && <div className="w-2 h-2 bg-orange-500 rounded-full mr-2.5 shrink-0"></div>}
+                  <span>Settings</span>
+                </button>
+              )}
           </div>
 
           <div className="p-6 space-y-4">
@@ -615,10 +692,18 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-300 text-[10px] space-y-1 uppercase tracking-wider font-bold shadow-sm">
-              <span className="text-orange-600 font-black block select-none">Active Sandbox Operator</span>
-              <span className="text-slate-950 block truncate font-black">{rbacSettings?.activeSimulatedEmail || "subham4343@gmail.com"}</span>
-              <span className="text-slate-900 block text-[9px] font-black lowercase italic">Hemraj travel desk [Role: {activeRole.replace('_', ' ')}]</span>
+            <div className="bg-slate-900 text-white p-4 rounded-2xl border border-slate-800 text-[10px] space-y-1 uppercase tracking-wider font-bold shadow-sm relative overflow-hidden">
+              <div className="absolute top-[-10%] right-[-10%] w-[30%] h-[35%] rounded-full bg-orange-600/20 blur-xl pointer-events-none" />
+              <span className="text-orange-500 font-black block select-none">Logged In User</span>
+              <span className="text-white block truncate font-black">{user?.name}</span>
+              <span className="text-slate-400 block text-[9.5px] font-black lowercase italic">{user?.email}</span>
+              <span className="text-slate-300 block text-[9px] font-black tracking-widest uppercase mt-1">Role: {activeRole.replace('_', ' ')}</span>
+              <button 
+                onClick={logout} 
+                className="mt-3 w-full bg-slate-800 hover:bg-slate-700 active:scale-95 text-[9px] text-rose-450 hover:text-rose-350 font-black uppercase py-2 rounded-xl transition cursor-pointer"
+              >
+                Sign Out / Logout
+              </button>
             </div>
           </div>
           </div>
@@ -730,7 +815,9 @@ export default function App() {
               </div>
             ) : (
               <div>
-                {currentView === "dashboard" ? (
+                {!checkPagePermission(currentView) ? (
+                  renderAccessDenied()
+                ) : currentView === "dashboard" ? (
                   <DashboardReports
                     indents={indents}
                     jobCards={jobCards}
@@ -775,7 +862,7 @@ export default function App() {
                     onRefresh={fetchData}
                     onSelectView={setCurrentView}
                     activeRole={activeRole}
-                    activeUserName={rbacUsers.find(u => u.email === (rbacSettings?.activeSimulatedEmail))?.name || "Corporate Admin"}
+                    activeUserName={user?.name || "Corporate Admin"}
                     senderEmail={senderEmail}
                     ccRecipients={ccRecipients}
                     activeTab={activeTab}

@@ -25,12 +25,15 @@ export default function FinanceDashboard({ jobCards, onUpdateJobCard }: FinanceD
 
   const selectedCard = jobCards.find(c => c.id === selectedCardId);
   const quotes = selectedCard?.quotes || [];
-  const winningQuote = quotes.find(q => q.id === selectedCard?.winningQuoteId);
+  const winningQuote = quotes.find(q => q.id === selectedCard?.winningQuoteId || q.isWinning);
 
   // Summary Metrics
   const totalAmountPending = pendingInvoices.reduce((acc, card) => acc + (card.invoiceVendorAmount || card.finalBookingAmount || 0), 0);
   const highVarianceCount = pendingInvoices.filter(card => {
-    const qAmount = quotes.find(q => q.id === card.winningQuoteId)?.amount || 0;
+    const cardWinQuote = card.quotes 
+      ? (card.quotes.find(q => q.id === card.winningQuoteId) || card.quotes.find(q => q.isWinning))
+      : null;
+    const qAmount = cardWinQuote ? cardWinQuote.amount : 0;
     const iAmount = card.invoiceVendorAmount || 0;
     return qAmount > 0 && iAmount > qAmount * 1.05; // 5% variance
   }).length;

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { usePersistedState } from "../hooks/usePersistedState";
+import { useAuth } from "../context/AuthContext";
 
 interface JobCardManagerProps {
   indents: TravelIndent[];
@@ -20,7 +21,7 @@ interface JobCardManagerProps {
   jobCards: JobCard[];
   onRefresh: () => Promise<void>;
   onSelectView: (view: "dashboard" | "create" | "jobcards" | "passports" | "settings") => void;
-  activeRole: 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'TRAVEL_DESK' | 'FINANCE';
+  activeRole: 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'TRAVEL_DESK' | 'FINANCE' | 'SUPERADMIN';
   senderEmail: string;
   ccRecipients: string;
   activeTab: 'ALL' | 'QUOTATION' | 'APPROVAL' | 'BOOKING' | 'FINANCE' | 'RECONCILIATION' | 'CLOSED' | 'VOIDED';
@@ -51,6 +52,7 @@ export default function JobCardManager({
   selectedCardId,
   onSelectCard
 }: JobCardManagerProps) {
+  const { hasPermission } = useAuth();
   const [jobCards, setJobCards] = useState<JobCard[]>(initialJobCards);
   const [selectedCard, setSelectedCard] = useState<JobCard | null>(null);
   const [profileEmployee, setProfileEmployee] = useState<Employee | null>(null);
@@ -148,7 +150,7 @@ export default function JobCardManager({
       setAirlineGstNumber(selectedCard.airlineGstNumber || "");
       setAirlineGstVendorName(selectedCard.airlineGstVendorName || "");
       setAirlineGstAmount(selectedCard.airlineGstAmount !== undefined ? String(selectedCard.airlineGstAmount) : "");
-      const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
+      const winQuote = selectedCard.quotes ? (selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning)) : null;
       setSelectedBookingVendor(selectedCard.bookingVendor || (winQuote ? winQuote.vendorName : ""));
 
       // Hydrate booking states
@@ -749,7 +751,7 @@ export default function JobCardManager({
         body: JSON.stringify({
           quotes: updatedQuotes,
           winningQuoteId: quote.id,
-          rfqCompletedAt: new Date().toISOString(),
+          rfqCompletedAt: selectedCard.rfqCompletedAt || new Date().toISOString(),
           auditLogs: [newAudit]
         })
       });
@@ -788,6 +790,7 @@ export default function JobCardManager({
           approvalStatus: 'PENDING',
           travelApprovalStatus: 'PENDING',
           commercialApprovalStatus: 'PENDING',
+          rfqCompletedAt: new Date().toISOString(),
           auditLogs: [newAudit]
         })
       });
@@ -829,6 +832,7 @@ export default function JobCardManager({
           travelApprovalNotes: approvalNotes || undefined,
           stage: nextStage,
           approvalStatus: decision === 'REJECTED' ? 'REJECTED' : 'PENDING',
+          rfqCompletedAt: decision === 'REJECTED' ? null : undefined,
           auditLogs: [newAudit]
         })
       });
@@ -874,6 +878,7 @@ export default function JobCardManager({
           approvalStatus: decision === 'APPROVED' ? 'APPROVED' : 'REJECTED',
           approvedAt: decision === 'APPROVED' ? new Date().toISOString() : undefined,
           approverName: reviewer,
+          rfqCompletedAt: decision === 'APPROVED' ? undefined : null,
           auditLogs: [newAudit]
         })
       });
@@ -959,6 +964,7 @@ export default function JobCardManager({
           travelApprovalNotes: null,
           // Clear the winning quote selection so L2 selects fresh in Approval tab
           winningQuoteId: null,
+          rfqCompletedAt: null,
           // Demote card all the way back to Bids/Quotation stage
           stage: "QUOTATION",
           approvalStatus: "PENDING",
@@ -981,7 +987,7 @@ export default function JobCardManager({
 
   const handleSendWorkOrder = async () => {
     if (!selectedCard) return;
-    const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+    const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning);
     
     // Find associated traveler and indent details
     const localIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
@@ -1050,7 +1056,7 @@ export default function JobCardManager({
 
   const handleDownloadWorkOrder = () => {
     if (!selectedCard) return;
-    const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+    const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning);
     const localIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
     const travelerEmp = localIndent ? employees.find(e => e.employee_code === localIndent.employee_code) : null;
 
@@ -1375,7 +1381,7 @@ export default function JobCardManager({
   useEffect(() => {
     if (!selectedCard) return;
     const indent = indents.find(i => i.id === selectedCard.indentId);
-    const approvedQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+    const approvedQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning);
     const vendor = approvedQuote?.vendorName || "Preferred Vendor Partner";
     const traveler = resolvedEmployee?.name || "Corporate Employee";
     const route = `${indent?.nearest_boarding_point || resolvedEmployee?.native_city || "BOM"} to ${selectedCard.destination || "DEL"}`;
@@ -1581,7 +1587,7 @@ export default function JobCardManager({
     }
 
     try {
-      const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
+      const winQuote = selectedCard.quotes ? (selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning)) : null;
       const approvedAmountInr = winQuote ? convertToINR(winQuote.amount, winQuote.currency) : 0;
       const rawAmt = parseFloat(invoiceVendorAmount) || 0;
       const finalAmtInr = invoiceCurrency === "INR" ? rawAmt : convertToINR(rawAmt, invoiceCurrency);
@@ -1653,12 +1659,13 @@ export default function JobCardManager({
 
     try {
       const finalAmt = parseFloat(invoiceVendorAmount);
-      const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
-      const appAmt = winQuote ? winQuote.amount : 0;
+      const winQuote = selectedCard.quotes ? (selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning)) : null;
+      const appAmtInr = winQuote ? convertToINR(winQuote.amount, winQuote.currency) : 0;
+      const finalAmtInr = convertToINR(finalAmt, invoiceCurrency);
 
       let variancePct = 0;
-      if (appAmt > 0) {
-        variancePct = Math.round(((finalAmt - appAmt) / appAmt) * 100);
+      if (appAmtInr > 0) {
+        variancePct = Math.round(((finalAmtInr - appAmtInr) / appAmtInr) * 100);
       }
 
       if (variancePct > 10 && !financeVarianceReason.trim()) {
@@ -1843,7 +1850,7 @@ export default function JobCardManager({
         : 0;
 
       // Retrieve original approved budget
-      const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+      const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning);
       const appAmtInr = winQuote ? convertToINR(winQuote.amount, winQuote.currency) : 0;
       const appAmt = winQuote ? winQuote.amount : 0;
       
@@ -2008,31 +2015,77 @@ export default function JobCardManager({
 
     const now = Date.now();
     const createdTime = parseTime(card.created_at);
-    
-    // Find Indent travel category and travel date
     const localIndent = indents.find(i => i.id === card.id || i.id === card.indentId);
-    
-    const rfqTime = parseTime(card.rfqCompletedAt) || (card.winningQuoteId ? parseTime(card.created_at) : null);
-    const l2Time = parseTime(card.l2ApprovedAt) || parseTime(card.commercialApprovedAt);
-    
-    let workOrderTime = parseTime(card.workOrderSentAt);
-    if (!workOrderTime && card.auditLogs) {
-      const log = card.auditLogs.find(l => l.action.toLowerCase().includes("work order sent") || l.action.toLowerCase().includes("dispatched"));
-      if (log) workOrderTime = parseTime(log.timestamp);
-    }
 
+    const getAuditLogTime = (actionKeywords: string[]) => {
+      if (!card.auditLogs) return null;
+      const log = card.auditLogs.find(l => 
+        actionKeywords.some(keyword => l.action.toLowerCase().includes(keyword.toLowerCase()))
+      );
+      return log ? new Date(log.timestamp).getTime() : null;
+    };
+
+    const STAGE_ORDER = ['QUOTATION', 'APPROVAL', 'BOOKING', 'FINANCE', 'RECONCILIATION', 'CLOSED'];
+    const currentStageIndex = STAGE_ORDER.indexOf(card.stage);
+    const hasPassed = (stage: string) => {
+      const idx = STAGE_ORDER.indexOf(stage);
+      return currentStageIndex > idx;
+    };
+
+    // Parse base database times
+    const l2Time = parseTime(card.l2ApprovedAt) || parseTime(card.commercialApprovedAt) || parseTime(card.approvedAt);
+    const workOrderTime = parseTime(card.workOrderSentAt);
     const bookingTime = parseTime(card.bookingRecordedAt);
-    
-    let invoiceTime = parseTime(card.invoiceUploadedAt);
-    if (!invoiceTime && card.auditLogs) {
-      const log = card.auditLogs.find(l => l.action.toLowerCase().includes("vendor invoice uploaded"));
-      if (log) invoiceTime = parseTime(log.timestamp);
+    const invoiceTime = parseTime(card.invoiceUploadedAt);
+    const gstTime = parseTime(card.gstInvoiceUploadedAt) || parseTime(card.reconciliationRecordedAt);
+
+    // Resolve robust end-times using stage checkpoints and audit fallback
+    let rfqEndTime = parseTime(card.rfqCompletedAt);
+    if (!rfqEndTime) {
+      rfqEndTime = getAuditLogTime(["dispatched for two-level approval", "winning quote selected", "dispatched for approval"]);
+    }
+    if (!rfqEndTime && hasPassed('QUOTATION')) {
+      rfqEndTime = l2Time || workOrderTime || bookingTime || createdTime;
     }
 
-    let gstTime = parseTime(card.gstInvoiceUploadedAt) || parseTime(card.reconciliationRecordedAt);
-    if (!gstTime && card.auditLogs) {
-      const log = card.auditLogs.find(l => l.action.toLowerCase().includes("reconciliation") || l.action.toLowerCase().includes("closed"));
-      if (log) gstTime = parseTime(log.timestamp);
+    let l2EndTime = l2Time;
+    if (!l2EndTime) {
+      l2EndTime = getAuditLogTime(["commercial approved", "level 2 approved", "l2 approved"]);
+    }
+    if (!l2EndTime && hasPassed('APPROVAL')) {
+      l2EndTime = workOrderTime || bookingTime || rfqEndTime;
+    }
+
+    let woEndTime = workOrderTime;
+    if (!woEndTime) {
+      woEndTime = getAuditLogTime(["work order sent", "work order dispatched", "sent work order"]);
+    }
+    if (!woEndTime && (card.workOrderSentAt || hasPassed('BOOKING'))) {
+      woEndTime = bookingTime || l2EndTime;
+    }
+
+    let bkEndTime = bookingTime;
+    if (!bkEndTime) {
+      bkEndTime = getAuditLogTime(["booking recorded", "ticket uploaded", "ticket details saved", "pnr recorded"]);
+    }
+    if (!bkEndTime && hasPassed('BOOKING')) {
+      bkEndTime = invoiceTime || gstTime || woEndTime;
+    }
+
+    let invEndTime = invoiceTime;
+    if (!invEndTime) {
+      invEndTime = getAuditLogTime(["vendor invoice uploaded", "invoice submitted", "invoice uploaded"]);
+    }
+    if (!invEndTime && hasPassed('FINANCE')) {
+      invEndTime = gstTime || bkEndTime;
+    }
+
+    let gstEndTime = gstTime;
+    if (!gstEndTime) {
+      gstEndTime = getAuditLogTime(["reconciliation", "gst invoice uploaded", "reconciliation recorded", "closed"]);
+    }
+    if (!gstEndTime && card.stage === 'CLOSED') {
+      gstEndTime = invEndTime;
     }
 
     const formatDuration = (ms: number) => {
@@ -2049,8 +2102,8 @@ export default function JobCardManager({
     let s1Spent = 0;
     let s1Status: 'delayed' | 'within' | 'not-started' = 'not-started';
     if (createdTime) {
-      if (rfqTime) {
-        s1Spent = rfqTime - createdTime;
+      if (rfqEndTime) {
+        s1Spent = rfqEndTime - createdTime;
         s1Status = s1Spent > limit1 ? 'delayed' : 'within';
       } else {
         s1Spent = now - createdTime;
@@ -2062,12 +2115,12 @@ export default function JobCardManager({
     const limit2 = 24 * 60 * 60 * 1000;
     let s2Spent = 0;
     let s2Status: 'delayed' | 'within' | 'not-started' = 'not-started';
-    if (rfqTime) {
-      if (l2Time) {
-        s2Spent = l2Time - rfqTime;
+    if (rfqEndTime) {
+      if (l2EndTime) {
+        s2Spent = l2EndTime - rfqEndTime;
         s2Status = s2Spent > limit2 ? 'delayed' : 'within';
       } else {
-        s2Spent = now - rfqTime;
+        s2Spent = now - rfqEndTime;
         s2Status = s2Spent > limit2 ? 'delayed' : 'within';
       }
     }
@@ -2076,12 +2129,12 @@ export default function JobCardManager({
     const limit3 = 2 * 60 * 60 * 1000;
     let s3Spent = 0;
     let s3Status: 'delayed' | 'within' | 'not-started' = 'not-started';
-    if (l2Time) {
-      if (workOrderTime) {
-        s3Spent = workOrderTime - l2Time;
+    if (l2EndTime) {
+      if (woEndTime) {
+        s3Spent = woEndTime - l2EndTime;
         s3Status = s3Spent > limit3 ? 'delayed' : 'within';
       } else {
-        s3Spent = now - l2Time;
+        s3Spent = now - l2EndTime;
         s3Status = s3Spent > limit3 ? 'delayed' : 'within';
       }
     }
@@ -2090,12 +2143,12 @@ export default function JobCardManager({
     const limit4 = 6 * 60 * 60 * 1000;
     let s4Spent = 0;
     let s4Status: 'delayed' | 'within' | 'not-started' = 'not-started';
-    if (workOrderTime) {
-      if (bookingTime) {
-        s4Spent = bookingTime - workOrderTime;
+    if (woEndTime) {
+      if (bkEndTime) {
+        s4Spent = bkEndTime - woEndTime;
         s4Status = s4Spent > limit4 ? 'delayed' : 'within';
       } else {
-        s4Spent = now - workOrderTime;
+        s4Spent = now - woEndTime;
         s4Status = s4Spent > limit4 ? 'delayed' : 'within';
       }
     }
@@ -2104,12 +2157,12 @@ export default function JobCardManager({
     const limit5 = 10 * 24 * 60 * 60 * 1000;
     let s5Spent = 0;
     let s5Status: 'delayed' | 'within' | 'not-started' = 'not-started';
-    if (bookingTime) {
-      if (invoiceTime) {
-        s5Spent = invoiceTime - bookingTime;
+    if (bkEndTime) {
+      if (invEndTime) {
+        s5Spent = invEndTime - bkEndTime;
         s5Status = s5Spent > limit5 ? 'delayed' : 'within';
       } else {
-        s5Spent = now - bookingTime;
+        s5Spent = now - bkEndTime;
         s5Status = s5Spent > limit5 ? 'delayed' : 'within';
       }
     }
@@ -2120,16 +2173,16 @@ export default function JobCardManager({
     let s6Spent = 0;
     let s6Status: 'delayed' | 'within' | 'not-started' = 'not-started';
     
-    if (isGstApplicable && invoiceTime) {
+    if (isGstApplicable && invEndTime) {
       const travelTime = localIndent ? parseTime(localIndent.travel_date) : null;
       const travelLimit = 10 * 24 * 60 * 60 * 1000;
       
-      if (gstTime) {
-        s6Spent = gstTime - invoiceTime;
-        const diffTravel = travelTime ? gstTime - travelTime : 0;
+      if (gstEndTime) {
+        s6Spent = gstEndTime - invEndTime;
+        const diffTravel = travelTime ? gstEndTime - travelTime : 0;
         s6Status = (s6Spent > limit6 || (travelTime ? diffTravel > travelLimit : false)) ? 'delayed' : 'within';
       } else {
-        s6Spent = now - invoiceTime;
+        s6Spent = now - invEndTime;
         const diffTravel = travelTime ? now - travelTime : 0;
         s6Status = (s6Spent > limit6 || (travelTime ? diffTravel > travelLimit : false)) ? 'delayed' : 'within';
       }
@@ -2139,11 +2192,11 @@ export default function JobCardManager({
 
     return [
       { title: "Quotation Bidding", spentStr: createdTime ? formatDuration(s1Spent) : "N/A", limitStr: "48 Hours", status: s1Status },
-      { title: "Review & Approval", spentStr: rfqTime ? formatDuration(s2Spent) : "Awaiting Quote Selection", limitStr: "24 Hours", status: s2Status },
-      { title: "Work Order Dispatch", spentStr: l2Time ? formatDuration(s3Spent) : "Awaiting Approval", limitStr: "2 Hours", status: s3Status },
-      { title: "Ticket Fulfillment", spentStr: workOrderTime ? formatDuration(s4Spent) : "Awaiting Work Order", limitStr: "6 Hours", status: s4Status },
-      { title: "Invoice Submission", spentStr: bookingTime ? formatDuration(s5Spent) : "Awaiting Booking", limitStr: "10 Days", status: s5Status },
-      { title: "GST Clearance", spentStr: !isGstApplicable ? "N/A (Non-GST)" : invoiceTime ? formatDuration(s6Spent) : "Awaiting Invoice", limitStr: "10 Days", status: s6Status }
+      { title: "Review & Approval", spentStr: rfqEndTime ? formatDuration(s2Spent) : "Awaiting Quote Selection", limitStr: "24 Hours", status: s2Status },
+      { title: "Work Order Dispatch", spentStr: l2EndTime ? formatDuration(s3Spent) : "Awaiting Approval", limitStr: "2 Hours", status: s3Status },
+      { title: "Ticket Fulfillment", spentStr: woEndTime ? formatDuration(s4Spent) : "Awaiting Work Order", limitStr: "6 Hours", status: s4Status },
+      { title: "Invoice Submission", spentStr: bkEndTime ? formatDuration(s5Spent) : "Awaiting Booking", limitStr: "10 Days", status: s5Status },
+      { title: "GST Clearance", spentStr: !isGstApplicable ? "N/A (Non-GST)" : invEndTime ? formatDuration(s6Spent) : "Awaiting Invoice", limitStr: "10 Days", status: s6Status }
     ];
   };
 
@@ -2482,7 +2535,7 @@ export default function JobCardManager({
                   {filteredCards.map(card => {
                     const isSelected = selectedCard?.id === card.id;
                     const days = getDaysOpen(card.created_at);
-                    const approvedQuote = card.quotes.find(q => q.id === card.winningQuoteId);
+                    const approvedQuote = card.quotes.find(q => q.id === card.winningQuoteId) || card.quotes.find(q => q.isWinning);
                     const isVoided = card.voided || indents.find(i => i.id === card.id)?.voided;
                     const isCardSelected = selectedCards.includes(card.id);
                     
@@ -3515,13 +3568,6 @@ export default function JobCardManager({
                                     const lRank = lowestIdx !== -1 ? `L${lowestIdx + 1}` : null;
 
                                     const getInrVal = (val: number, cur: string) => convertToINR(val, cur);
-                                    const getInrValOld = (val: number, cur: string) => {
-                                      if (cur === "USD" || cur === "$") return val * 83;
-                                      if (cur === "VND") return val * 0.0035;
-                                      if (cur === "NGN") return val * 0.06;
-                                      if (cur === "AUD") return val * 55;
-                                      return val;
-                                    };
                                     const inrVal = getInrVal(q.amount, q.currency);
 
                                     return (
@@ -3646,13 +3692,6 @@ export default function JobCardManager({
                                     const lRank = lowestIdx !== -1 ? `L${lowestIdx + 1}` : null;
 
                                     const getInrVal = (val: number, cur: string) => convertToINR(val, cur);
-                                    const getInrValOld = (val: number, cur: string) => {
-                                      if (cur === "USD" || cur === "$") return val * 83;
-                                      if (cur === "VND") return val * 0.0035;
-                                      if (cur === "NGN") return val * 0.06;
-                                      if (cur === "AUD") return val * 55;
-                                      return val;
-                                    };
                                     const inrVal = getInrVal(q.amount, q.currency);
 
                                     return (
@@ -3703,7 +3742,7 @@ export default function JobCardManager({
                                         {isWinning ? (
                                           <div className="flex flex-col items-center gap-1.5">
                                             <span className="bg-emerald-600 text-white px-4 py-1.5 rounded-xl text-[9px] font-black tracking-widest inline-block shadow-sm">✓ SELECTED</span>
-                                            {activeRole === 'VP_COMMERCIAL' && selectedCard.commercialApprovalStatus !== 'APPROVED' && (
+                                            {hasPermission("SELECT_WINNING_BID") && selectedCard.commercialApprovalStatus !== 'APPROVED' && (
                                               <button
                                                 onClick={() => handleSelectWinningQuote(q)}
                                                 className="text-[8px] text-rose-500 hover:text-rose-700 font-black uppercase tracking-wider underline"
@@ -3712,7 +3751,7 @@ export default function JobCardManager({
                                               </button>
                                             )}
                                           </div>
-                                        ) : activeRole === 'VP_COMMERCIAL' && selectedCard.commercialApprovalStatus !== 'APPROVED' ? (
+                                        ) : hasPermission("SELECT_WINNING_BID") && selectedCard.commercialApprovalStatus !== 'APPROVED' ? (
                                           <button
                                             onClick={() => handleSelectWinningQuote(q)}
                                             className="h-8 px-3 bg-slate-900 hover:bg-orange-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition active:scale-95 shadow-sm"
@@ -3779,7 +3818,7 @@ export default function JobCardManager({
                                 <span>By: {selectedCard.travelApprovedBy || "Travel Desk Inspector"}</span>
                                 <span className="block mt-0.5 text-slate-400">{selectedCard.travelApprovedAt}</span>
                               </div>
-                              {(activeRole === 'TRAVEL_APPROVER' || activeRole === 'VP_COMMERCIAL') && (
+                              {hasPermission("APPROVE_INDENT_L1") && (
                                 <button
                                   onClick={handleL1TravelUnapprove}
                                   disabled={submittingApproval}
@@ -3791,7 +3830,7 @@ export default function JobCardManager({
                             </div>
                           ) : (
                             <div className="space-y-2 pt-2">
-                              {activeRole === 'TRAVEL_APPROVER' || activeRole === 'VP_COMMERCIAL' ? (
+                              {hasPermission("APPROVE_INDENT_L1") ? (
                                 <div className="flex gap-2">
                                   <button
                                     onClick={() => handleL1TravelDecision('APPROVED')}
@@ -3811,8 +3850,8 @@ export default function JobCardManager({
                                   </button>
                                 </div>
                               ) : (
-                                <p className="text-[9px] text-orange-600 bg-orange-50 p-2.5 border border-orange-100 rounded-lg font-black uppercase tracking-wider text-center" title="Toggle simulation controls above to test L1">
-                                  ⚠️ Toggle simulated role to "Travel Approver" to execute
+                                <p className="text-[9px] text-orange-600 bg-orange-50 p-2.5 border border-orange-100 rounded-lg font-black uppercase tracking-wider text-center" title="Request permission mapping change in Settings">
+                                  ⚠️ Permission "L1 Travel Approval" required to execute
                                 </p>
                               )}
                             </div>
@@ -3852,7 +3891,7 @@ export default function JobCardManager({
                                 <span>By: {selectedCard.commercialApprovedBy || "VP Admin"}</span>
                                 <span className="block mt-0.5 text-slate-400">{selectedCard.commercialApprovedAt}</span>
                               </div>
-                              {activeRole === 'VP_COMMERCIAL' && (
+                              {hasPermission("APPROVE_COMMERCIAL_L2") && (
                                 <button
                                   onClick={handleL2CommercialUnapprove}
                                   disabled={submittingApproval}
@@ -3864,7 +3903,7 @@ export default function JobCardManager({
                             </div>
                           ) : (
                             <div className="space-y-2 pt-2">
-                              {activeRole === 'VP_COMMERCIAL' ? (
+                              {hasPermission("APPROVE_COMMERCIAL_L2") ? (
                                 <div className="space-y-2">
                                   {!selectedCard.winningQuoteId && (
                                     <p className="text-[9px] text-blue-700 bg-blue-50 border border-blue-200 p-2.5 rounded-lg font-black uppercase tracking-wider text-center">
@@ -3891,8 +3930,8 @@ export default function JobCardManager({
                                   </div>
                                 </div>
                               ) : (
-                                <p className="text-[9px] text-orange-600 bg-orange-50 p-2.5 border border-orange-100 rounded-lg font-black uppercase tracking-wider text-center" title="Toggle active role to L2 VP Action">
-                                  🔒 Toggle active role to "VP Commercial (L2)" to finalize approval
+                                <p className="text-[9px] text-orange-600 bg-orange-50 p-2.5 border border-orange-100 rounded-lg font-black uppercase tracking-wider text-center" title="Request permission mapping change in Settings">
+                                  🔒 Permission "L2 Commercial Approval" required to finalize approval
                                 </p>
                               )}
                             </div>
@@ -3903,7 +3942,7 @@ export default function JobCardManager({
 
                       {/* VIEW ACTIVE SELECTION */}
                       {(() => {
-                        const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+                        const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning);
                         return (
                           <div className="p-6 bg-slate-50 border border-slate-205 rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
@@ -3929,7 +3968,7 @@ export default function JobCardManager({
 
                       {/* FORMAL WORK ORDER DISPLAY */}
                       {selectedCard.commercialApprovalStatus === 'APPROVED' && (() => {
-                        const woWinQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+                        const woWinQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning);
                         const woIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
                         const woInrVal = woWinQuote ? convertToINR(woWinQuote.amount, woWinQuote.currency) : 0;
                         const travelType = woIndent?.travel_type || "FLIGHT";
@@ -4206,7 +4245,7 @@ export default function JobCardManager({
                             <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Approved Bid Limit</span>
                             <span className="text-xs font-mono font-bold text-emerald-800">
                               {(() => {
-                                const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
+                                const winQuote = selectedCard.quotes ? (selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning)) : null;
                                 return winQuote ? `${winQuote.amount} ${winQuote.currency}` : "Unspecified";
                               })()}
                             </span>
@@ -4402,7 +4441,7 @@ export default function JobCardManager({
                         {(() => {
                           const convertToInrValueComp = (amt: number, curr: string) => convertToINR(amt, curr);
 
-                          const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
+                          const winQuote = selectedCard.quotes ? (selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning)) : null;
                           if (!winQuote || !invoiceVendorAmount) return null;
 
                           const winQuoteInr = convertToInrValueComp(winQuote.amount, winQuote.currency);
@@ -4465,12 +4504,18 @@ export default function JobCardManager({
                       </div>
 
                       {(() => {
-                        const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
+                        const winQuote = selectedCard.quotes 
+                          ? (selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning))
+                          : null;
                         const approvedAmount = winQuote ? winQuote.amount : 0;
+                        const approvedAmountInr = winQuote ? convertToINR(winQuote.amount, winQuote.currency) : 0;
+                        
                         const finalAmt = parseFloat(invoiceVendorAmount) || 0;
+                        const finalAmtInr = convertToINR(finalAmt, invoiceCurrency);
+                        
                         let varPct = 0;
-                        if (approvedAmount > 0) {
-                          varPct = Math.round(((finalAmt - approvedAmount) / approvedAmount) * 100);
+                        if (approvedAmountInr > 0) {
+                          varPct = Math.round(((finalAmtInr - approvedAmountInr) / approvedAmountInr) * 100);
                         }
                         const isHighVariance = varPct > 10;
 
@@ -4479,18 +4524,24 @@ export default function JobCardManager({
                             
                             {/* COMPARISON BAR CARD */}
                             <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 space-y-4">
-                              <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider block border-b border-slate-200 pb-2">Cost Comparison</h4>
+                              <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-wider block border-b border-slate-200 pb-2">Cost Comparison</h4>
                               
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 font-bold text-xs">
                                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-bold text-slate-400 uppercase block mb-1">Approved Bid Limit</span>
+                                  <span className="text-[9px] font-bold text-slate-700 uppercase block mb-1">Approved Bid Limit</span>
                                   <span className="text-sm font-black font-mono text-slate-900 block">{approvedAmount} {winQuote?.currency || "INR"}</span>
-                                  <span className="text-[9px] text-slate-400 font-bold block uppercase mt-1">Vendor: {winQuote?.vendorName || "Unspecified"}</span>
+                                  {winQuote?.currency && winQuote.currency !== "INR" && (
+                                    <span className="text-[9px] text-emerald-700 font-bold block uppercase mt-0.5">≈ INR {Math.round(approvedAmountInr).toLocaleString('en-IN')}</span>
+                                  )}
+                                  <span className="text-[9.5px] text-slate-805 font-bold block uppercase mt-1">Vendor: {winQuote?.vendorName || "Unspecified"}</span>
                                 </div>
                                 <div className={`p-4 rounded-xl border shadow-xs ${isHighVariance ? "bg-rose-50 border-rose-300 text-rose-950 animate-pulse" : "bg-emerald-50/70 border-emerald-300 text-emerald-950"}`}>
-                                  <span className={`text-[8px] font-bold uppercase block mb-1 ${isHighVariance ? 'text-rose-600' : 'text-emerald-700'}`}>Invoice Final Cost</span>
+                                  <span className={`text-[9px] font-bold uppercase block mb-1 ${isHighVariance ? 'text-rose-700' : 'text-emerald-700'}`}>Invoice Final Cost</span>
                                   <span className="text-sm font-black font-mono block">{finalAmt} {invoiceCurrency}</span>
-                                  <span className={`text-[9px] font-extrabold block uppercase mt-1 ${isHighVariance ? "text-rose-700" : "text-emerald-700"}`}>
+                                  {invoiceCurrency !== "INR" && (
+                                    <span className={`text-[9px] font-bold block uppercase mt-0.5 ${isHighVariance ? "text-rose-700" : "text-emerald-700"}`}>≈ INR {Math.round(finalAmtInr).toLocaleString('en-IN')}</span>
+                                  )}
+                                  <span className={`text-[9.5px] font-black block uppercase mt-1 ${isHighVariance ? "text-rose-700" : "text-emerald-700"}`}>
                                     Difference is {varPct >= 0 ? `+${varPct}%` : `${varPct}%`}
                                   </span>
                                 </div>
@@ -4501,7 +4552,7 @@ export default function JobCardManager({
                                   <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                                   <div className="text-[10px] font-bold uppercase tracking-wide leading-normal">
                                     <span className="font-bold text-rose-800 block text-[11px] mb-0.5">Critical difference detected!</span>
-                                    The actual invoice amount (<strong>{finalAmt} {invoiceCurrency}</strong>) exceeds the approved budget (<strong>{approvedAmount} {invoiceCurrency}</strong>) by <strong className="text-rose-700 font-black">{varPct}%</strong>. Payment clearance requires a reason comment below.
+                                    The actual invoice amount (<strong>{finalAmt} {invoiceCurrency}</strong>) exceeds the approved budget (<strong>{approvedAmount} {winQuote?.currency || "INR"}</strong>) by <strong className="text-rose-700 font-black">{varPct}%</strong>. Payment clearance requires a reason comment below.
                                   </div>
                                 </div>
                               )}
@@ -4609,34 +4660,51 @@ export default function JobCardManager({
                         
                         {/* COMPARE APPROVED VS FINAL FOR VARIANCE ALERT */}
                         {(() => {
-                          const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId);
+                          const winQuote = selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning);
                           const approvedAmount = winQuote ? winQuote.amount : 0;
+                          const approvedAmountInr = winQuote ? convertToINR(winQuote.amount, winQuote.currency) : 0;
                           const finalAmt = parseFloat(invoiceVendorAmount) || 0;
+                          const finalAmtInr = convertToINR(finalAmt, invoiceCurrency);
                           
                           return (
                             <div className="p-6 bg-slate-50 border border-slate-150 rounded-2xl space-y-4">
-                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block">Audit pricing checkpoint</span>
+                              <span className="text-[9px] font-black text-slate-800 uppercase tracking-widest block">Audit pricing checkpoint</span>
                               
                               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                 <div>
-                                  <span className="text-slate-400 text-[10px] uppercase font-bold block">1. Approved Bid Limit</span>
-                                  <span className="text-slate-900 text-base font-black uppercase block mt-0.5 font-mono">{approvedAmount} {winQuote?.currency}</span>
+                                  <span className="text-slate-600 text-[10px] uppercase font-bold block">1. Approved Bid Limit</span>
+                                  <span className="text-slate-900 text-base font-black uppercase block mt-0.5 font-mono">
+                                    {approvedAmount} {winQuote?.currency || "INR"}
+                                    {winQuote?.currency && winQuote.currency !== "INR" && (
+                                      <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">≈ ₹{Math.round(approvedAmountInr).toLocaleString('en-IN')}</span>
+                                    )}
+                                  </span>
                                 </div>
                                 <div>
-                                  <span className="text-slate-400 text-[10px] uppercase font-bold block">2. Actual Fulfilled (PNR)</span>
-                                  <span className="text-slate-900 text-base font-black uppercase block mt-0.5 font-mono">{selectedCard.finalBookingAmount} {selectedCard.bookingCurrency}</span>
+                                  <span className="text-slate-600 text-[10px] uppercase font-bold block">2. Actual Fulfilled (PNR)</span>
+                                  <span className="text-slate-900 text-base font-black uppercase block mt-0.5 font-mono">
+                                    {selectedCard.finalBookingAmount} {selectedCard.bookingCurrency || "INR"}
+                                    {selectedCard.bookingCurrency && selectedCard.bookingCurrency !== "INR" && (
+                                      <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">≈ ₹{Math.round(convertToINR(selectedCard.finalBookingAmount || 0, selectedCard.bookingCurrency)).toLocaleString('en-IN')}</span>
+                                    )}
+                                  </span>
                                 </div>
                                 <div>
-                                  <span className="text-slate-400 text-[10px] uppercase font-bold block">3. Bill Under Audit Entry</span>
-                                  <span className="text-slate-900 text-base font-black uppercase block mt-0.5 font-mono">{finalAmt || "Pending Input"} {invoiceCurrency}</span>
+                                  <span className="text-slate-600 text-[10px] uppercase font-bold block">3. Bill Under Audit Entry</span>
+                                  <span className="text-slate-900 text-base font-black uppercase block mt-0.5 font-mono">
+                                    {finalAmt || "Pending Input"} {invoiceCurrency}
+                                    {invoiceCurrency !== "INR" && finalAmt > 0 && (
+                                      <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">≈ ₹{Math.round(finalAmtInr).toLocaleString('en-IN')}</span>
+                                    )}
+                                  </span>
                                 </div>
                               </div>
 
                               {/* DYNAMIC VARIANCE GUARD CHAT ALERT */}
-                              {finalAmt > approvedAmount && approvedAmount > 0 && (
+                              {finalAmtInr > approvedAmountInr && approvedAmountInr > 0 && (
                                 <div className="mt-3 p-4 bg-orange-100 border border-orange-300 text-orange-950 font-black text-[10px] uppercase tracking-wide rounded-xl flex items-center gap-2">
                                   <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0" />
-                                  <span>Variance Alarm: Final vendor invoice exceeds budget bid by {Math.round(((finalAmt - approvedAmount)/approvedAmount)*100)}%!</span>
+                                  <span>Variance Alarm: Final vendor invoice exceeds budget bid by {Math.round(((finalAmtInr - approvedAmountInr)/approvedAmountInr)*100)}%!</span>
                                 </div>
                               )}
                             </div>
@@ -4825,7 +4893,7 @@ export default function JobCardManager({
                           {(() => {
                             const convertToInrValueComp = (amt: number, curr: string) => convertToINR(amt, curr);
 
-                            const winQuote = selectedCard.quotes ? selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) : null;
+                            const winQuote = selectedCard.quotes ? (selectedCard.quotes.find(q => q.id === selectedCard.winningQuoteId) || selectedCard.quotes.find(q => q.isWinning)) : null;
                             if (!winQuote || !invoiceVendorAmount) return null;
 
                             const winQuoteInr = convertToInrValueComp(winQuote.amount, winQuote.currency);

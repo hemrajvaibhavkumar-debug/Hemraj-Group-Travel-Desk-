@@ -225,7 +225,12 @@ export interface RbacUser {
   id: string; // unique identifier
   name: string;
   email: string;
-  role: 'TRAVEL_DESK' | 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'FINANCE';
+  role: 'TRAVEL_DESK' | 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'FINANCE' | 'SUPERADMIN';
+}
+
+export interface RolePermission {
+  role: 'TRAVEL_DESK' | 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'FINANCE' | 'SUPERADMIN';
+  permissions: string[];
 }
 
 export interface RbacSettings {

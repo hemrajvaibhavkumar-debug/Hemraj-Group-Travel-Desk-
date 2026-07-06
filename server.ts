@@ -9,6 +9,31 @@ import { createServer as createViteServer } from "vite";
 import { TravelCategory, PriorityLevel, Employee, TravelIndent, JobCard, JobCardQuote, AuditLogEntry, RbacUser, RbacSettings, Vendor } from "./src/types";
 import { GoogleGenAI } from "@google/genai";
 import { prisma } from "./src/db/prisma";
+import crypto from "crypto";
+
+function hashPassword(password: string): string {
+  const salt = "hemraj-salt-12345";
+  const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, "sha512").toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password: string, storedHash: string): boolean {
+  const [salt, hash] = storedHash.split(":");
+  const testHash = crypto.pbkdf2Sync(password, salt, 1000, 64, "sha512").toString("hex");
+  return testHash === hash;
+}
+
+const SESSIONS = new Map<string, { email: string; expires: number }>();
+
+function parseCookies(cookieHeader?: string): Record<string, string> {
+  const list: Record<string, string> = {};
+  if (!cookieHeader) return list;
+  cookieHeader.split(";").forEach(cookie => {
+    const parts = cookie.split("=");
+    list[parts.shift()!.trim()] = decodeURI(parts.join("="));
+  });
+  return list;
+}
 
 const app = express();
 const PORT = 5173;
@@ -109,12 +134,13 @@ const DEFAULT_DB_DATA = {
     { id: "usr-1", name: "Corporate Admin", email: "subham4343@gmail.com", role: "TRAVEL_DESK" },
     { id: "usr-2", name: "Rohit ji (COO)", email: "rohit.coo@hemrajgroup.com", role: "TRAVEL_APPROVER" },
     { id: "usr-3", name: "VP Commercial", email: "vp.commercial@hemrajgroup.com", role: "VP_COMMERCIAL" },
-    { id: "usr-4", name: "Finance Team", email: "finance@hemrajgroup.com", role: "FINANCE" }
+    { id: "usr-4", name: "Finance Team", email: "finance@hemrajgroup.com", role: "FINANCE" },
+    { id: "usr-5", name: "Super Administrator", email: "superadmin@hemrajgroup.com", role: "SUPERADMIN" }
   ],
   rbacSettings: {
     senderEmail: "travel-desk@hemraj-group.com",
     ccRecipients: "compliance-cc@hemraj-group.com, travel-archive@hemraj-group.com",
-    activeSimulatedEmail: "subham4343@gmail.com"
+    activeSimulatedEmail: "superadmin@hemrajgroup.com"
   },
   vendors: [
     { id: "VND-MMT-101", name: "MakeMyTrip Corporate", emails: ["corp@makemytrip.com"], phones: ["+91 124 462 8745"], categories: ["FLIGHT", "HOTEL", "CAB"] },
@@ -339,7 +365,33 @@ async function seedDatabaseIfEmpty() {
           id: u.id,
           name: u.name,
           email: u.email,
-          role: u.role as any
+          role: u.role as any,
+          passwordHash: hashPassword("Password123")
+        }
+      });
+    }
+
+    // Seeding default Role Permissions
+    const defaultPermissionsMap = {
+      TRAVEL_DESK: ["CREATE_INDENT", "VIEW_INDENTS", "MANAGE_EMPLOYEES", "MANAGE_VENDORS", "RECORD_BOOKING", "UPLOAD_DOCUMENTS"],
+      TRAVEL_APPROVER: ["VIEW_INDENTS", "APPROVE_INDENT_L1", "REJECT_INDENT_L1"],
+      VP_COMMERCIAL: ["VIEW_INDENTS", "SELECT_WINNING_BID", "APPROVE_COMMERCIAL_L2", "REJECT_COMMERCIAL_L2"],
+      FINANCE: ["VIEW_INDENTS", "SAVE_VENDOR_INVOICE", "APPROVE_PAYMENT", "RECONCILE_GST"],
+      SUPERADMIN: [
+        "CREATE_INDENT", "VIEW_INDENTS", "APPROVE_INDENT_L1", "SELECT_WINNING_BID", 
+        "APPROVE_COMMERCIAL_L2", "RECORD_BOOKING", "SAVE_VENDOR_INVOICE", 
+        "APPROVE_PAYMENT", "RECONCILE_GST", "MANAGE_EMPLOYEES", 
+        "MANAGE_VENDORS", "MANAGE_SETTINGS"
+      ]
+    };
+
+    for (const [role, perms] of Object.entries(defaultPermissionsMap)) {
+      await prisma.rolePermission.upsert({
+        where: { role: role as any },
+        update: {},
+        create: {
+          role: role as any,
+          permissions: perms
         }
       });
     }
@@ -379,6 +431,138 @@ async function seedDatabaseIfEmpty() {
 // ENDPOINTS
 // -------------------------------------------------------------
 
+// AUTH: Login
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required." });
+    }
+
+    const user = await prisma.rbacUser.findUnique({
+      where: { email: email.trim().toLowerCase() }
+    });
+
+    if (!user || !verifyPassword(password, user.passwordHash)) {
+      return res.status(401).json({ error: "Invalid email or password." });
+    }
+
+    // Generate Session Token
+    const token = crypto.randomBytes(32).toString("hex");
+    SESSIONS.set(token, {
+      email: user.email,
+      expires: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+    });
+
+    // Set HttpOnly Cookie
+    res.setHeader("Set-Cookie", `session_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+    
+    // Fetch permissions
+    const rolePermission = await prisma.rolePermission.findUnique({
+      where: { role: user.role }
+    });
+
+    return res.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      },
+      permissions: rolePermission ? rolePermission.permissions : []
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: "Login failed: " + error.message });
+  }
+});
+
+// AUTH: Logout
+app.post("/api/auth/logout", (req, res) => {
+  const cookies = parseCookies(req.headers.cookie);
+  const token = cookies["session_token"];
+  if (token) {
+    SESSIONS.delete(token);
+  }
+  res.setHeader("Set-Cookie", "session_token=; Path=/; HttpOnly; Max-Age=0");
+  return res.json({ success: true });
+});
+
+// AUTH: Me (Get Current User Profile & Permissions)
+app.get("/api/auth/me", async (req, res) => {
+  try {
+    const cookies = parseCookies(req.headers.cookie);
+    const token = cookies["session_token"];
+    if (!token) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const session = SESSIONS.get(token);
+    if (!session || session.expires < Date.now()) {
+      if (session) SESSIONS.delete(token);
+      res.setHeader("Set-Cookie", "session_token=; Path=/; HttpOnly; Max-Age=0");
+      return res.status(401).json({ error: "Session expired or invalid" });
+    }
+
+    const user = await prisma.rbacUser.findUnique({
+      where: { email: session.email }
+    });
+
+    if (!user) {
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    const rolePermission = await prisma.rolePermission.findUnique({
+      where: { role: user.role }
+    });
+
+    return res.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      },
+      permissions: rolePermission ? rolePermission.permissions : []
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to retrieve session: " + error.message });
+  }
+});
+
+// RBAC: Get Permissions Map for all Roles
+app.get("/api/rbac/permissions", async (req, res) => {
+  try {
+    const permissions = await prisma.rolePermission.findMany();
+    return res.json(permissions);
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to get role permissions: " + error.message });
+  }
+});
+
+// RBAC: Update Permissions Map for a Role
+app.put("/api/rbac/permissions", async (req, res) => {
+  try {
+    const { role, permissions } = req.body;
+    if (!role || !Array.isArray(permissions)) {
+      return res.status(400).json({ error: "Role and permissions array are required." });
+    }
+
+    const updated = await prisma.rolePermission.upsert({
+      where: { role: role as any },
+      update: { permissions: JSON.parse(JSON.stringify(permissions)) },
+      create: {
+        role: role as any,
+        permissions: JSON.parse(JSON.stringify(permissions))
+      }
+    });
+
+    return res.json(updated);
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to update role permissions: " + error.message });
+  }
+});
+
+
 // RBAC GET configuration
 app.get("/api/rbac", async (req, res) => {
   try {
@@ -416,7 +600,8 @@ app.post("/api/rbac/users", async (req, res) => {
         id: `usr-${Date.now()}`,
         name: name.trim(),
         email: email.trim().toLowerCase(),
-        role: role
+        role: role,
+        passwordHash: hashPassword("Password123")
       }
     });
     return res.status(201).json({ success: true, user: newUser });
@@ -522,22 +707,56 @@ app.put("/api/rbac/settings", async (req, res) => {
   }
 });
 
-// File upload simulation
-app.post("/api/upload", (req, res) => {
+// File upload handler - forwards to n8n if configured
+app.post("/api/upload", async (req, res) => {
   try {
-    const { fileName, fileData } = req.body;
+    const { fileName, fileData, fileType } = req.body;
     if (!fileName || !fileData) {
       return res.status(400).json({ error: "Missing required upload parameters (fileName, fileData)." });
     }
+
+    const uploadWebhook = process.env.N8N_UPLOAD_WEBHOOK_URL;
+    if (uploadWebhook && uploadWebhook.trim()) {
+      console.log("Routing file upload to n8n webhook:", fileName);
+      const response = await fetch(uploadWebhook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName,
+          fileData, // base64 encoded
+          fileType,
+          uploadedAt: new Date().toISOString()
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`n8n upload webhook returned status ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.success && data.url) {
+        return res.status(200).json({
+          success: true,
+          url: data.url,
+          name: fileName,
+          message: "File uploaded to Google Drive via n8n successfully!"
+        });
+      } else {
+        throw new Error(data.error || "n8n response did not return a successful file URL.");
+      }
+    }
+
+    // Fallback mock if n8n is not configured
     const cleanName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
     const relativeUrl = `/uploads/${Date.now()}_${cleanName}`;
     return res.status(200).json({
       success: true,
       url: relativeUrl,
       name: fileName,
-      message: "File simulated and uploaded successfully."
+      message: "File simulated and uploaded locally (Mock Mode)."
     });
   } catch (error: any) {
+    console.error("Upload error:", error.message);
     return res.status(500).json({ error: "File upload failure: " + error.message });
   }
 });

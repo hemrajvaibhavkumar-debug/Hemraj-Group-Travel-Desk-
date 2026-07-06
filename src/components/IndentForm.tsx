@@ -105,6 +105,54 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
     const section2Errors = validateSection2();
     if (Object.keys(section2Errors).length === 0) {
       setFormErrors({});
+      
+      // Auto-propagate traveler profile defaults to Step 2 Travel Particulars
+      let defaultApprover = "";
+      let defaultTitle = "";
+      let defaultPlant = travelForm.plant;
+      let defaultMeal = travelForm.mealPreference;
+
+      if (useExistingEmployee) {
+        const emp = employees.find(e => e.employee_code === selectedEmpCode);
+        if (emp) {
+          defaultApprover = emp.default_travel_approver || "";
+          defaultTitle = emp.approver_designation || "";
+          if (emp.assigned_plant_site) {
+            const siteUpper = emp.assigned_plant_site.toUpperCase();
+            if (["HIPL", "RSIPL", "HRM", "SUNAGROW", "RICEFIELD"].includes(siteUpper)) {
+              defaultPlant = siteUpper;
+            }
+          }
+          if (travelForm.type === "TRAIN" && emp.train_preferred_class) {
+            if (emp.train_meal_preference === "Veg") defaultMeal = "VEG";
+            else if (emp.train_meal_preference === "Non-Veg") defaultMeal = "NON_VEG";
+            else if (emp.train_meal_preference === "Jain Meal") defaultMeal = "OTHER";
+          }
+        }
+      } else {
+        defaultApprover = travelerForm.defaultTravelApprover;
+        defaultTitle = travelerForm.approverDesignation;
+        if (travelerForm.assignedPlantSite) {
+          const siteUpper = travelerForm.assignedPlantSite.toUpperCase();
+          if (["HIPL", "RSIPL", "HRM", "SUNAGROW", "RICEFIELD"].includes(siteUpper)) {
+            defaultPlant = siteUpper;
+          }
+        }
+        if (travelForm.type === "TRAIN") {
+          if (travelerForm.trainMealPreference === "Veg") defaultMeal = "VEG";
+          else if (travelerForm.trainMealPreference === "Non-Veg") defaultMeal = "NON_VEG";
+          else if (travelerForm.trainMealPreference === "Jain Meal") defaultMeal = "OTHER";
+        }
+      }
+
+      setTravelForm(prev => ({
+        ...prev,
+        travelApprover: prev.travelApprover || defaultApprover,
+        approverTitle: prev.approverTitle || defaultTitle,
+        plant: prev.plant === "HIPL" && defaultPlant !== "HIPL" ? defaultPlant : prev.plant,
+        mealPreference: prev.mealPreference === "VEG" && defaultMeal !== "VEG" ? defaultMeal : prev.mealPreference
+      }));
+
       setCurrentStep(2);
     } else {
       setFormErrors(section2Errors);

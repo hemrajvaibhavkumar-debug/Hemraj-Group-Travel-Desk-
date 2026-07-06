@@ -25,11 +25,34 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
   const [savingSettings, setSavingSettings] = useState(false);
   const [submittingUser, setSubmittingUser] = useState(false);
 
+  // Permissions Matrix states
+  const [rolePermissions, setRolePermissions] = useState<Record<string, string[]>>({
+    TRAVEL_DESK: [],
+    TRAVEL_APPROVER: [],
+    VP_COMMERCIAL: [],
+    FINANCE: []
+  });
+
+  const PERMISSIONS_LIST = [
+    { key: "CREATE_INDENT", name: "Create Travel Indent", desc: "Raise new indents and register new employees" },
+    { key: "VIEW_INDENTS", name: "View Travel Console", desc: "Read and list all indents, travelers, and job cards" },
+    { key: "APPROVE_INDENT_L1", name: "L1 Travel Approval", desc: "Perform L1 line-manager compliance check sign-off" },
+    { key: "SELECT_WINNING_BID", name: "Select RFQ Bids", desc: "VP-level vendor bid comparisons and win selection" },
+    { key: "APPROVE_COMMERCIAL_L2", name: "L2 Commercial Approval", desc: "Perform L2 VP-commercial sign-off authorizing procurement" },
+    { key: "RECORD_BOOKING", name: "Record Bookings", desc: "Upload tickets and record final booking PNRs" },
+    { key: "SAVE_VENDOR_INVOICE", name: "Record Invoices", desc: "Upload physical vendor invoices and bill particulars" },
+    { key: "APPROVE_PAYMENT", name: "Finance Verification", desc: "Mark job cards as ready for final payment clearance" },
+    { key: "RECONCILE_GST", name: "GST Reconciliation", desc: "Mark GST billing audits as correct / reconciled" },
+    { key: "MANAGE_EMPLOYEES", name: "Manage Employee Directory", desc: "Register, modify, or delete traveler master accounts" },
+    { key: "MANAGE_VENDORS", name: "Manage Vendors Directory", desc: "Add, modify, or delete corporate travel vendor partners" },
+    { key: "MANAGE_SETTINGS", name: "Manage System Settings", desc: "Change cc-mailing rules, SMTP emails, and RBAC matrix" }
+  ];
+
   // User form states
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState("");
   const [emailInput, setEmailInput] = useState("");
-  const [roleInput, setRoleInput] = useState<'TRAVEL_DESK' | 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'FINANCE'>('TRAVEL_DESK');
+  const [roleInput, setRoleInput] = useState<'TRAVEL_DESK' | 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'FINANCE' | 'SUPERADMIN'>('TRAVEL_DESK');
   const [isFormOpen, setIsFormOpen] = useState(false);
   
   // Vendor Table states
@@ -51,18 +74,64 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
   const fetchRbacData = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/rbac");
-      if (!res.ok) {
+      const [rbacRes, permRes] = await Promise.all([
+        fetch("/api/rbac"),
+        fetch("/api/rbac/permissions")
+      ]);
+      if (!rbacRes.ok || !permRes.ok) {
         throw new Error("Failed to fetch RBAC data from backend.");
       }
-      const data = await res.json();
-      setUsers(data.rbacUsers);
-      setSettings(data.rbacSettings);
+      const rbacData = await rbacRes.json();
+      setUsers(rbacData.rbacUsers);
+      setSettings(rbacData.rbacSettings);
+
+      const permData = await permRes.json();
+      const map: Record<string, string[]> = {
+        TRAVEL_DESK: [],
+        TRAVEL_APPROVER: [],
+        VP_COMMERCIAL: [],
+        FINANCE: []
+      };
+      permData.forEach((item: any) => {
+        map[item.role] = item.permissions || [];
+      });
+      setRolePermissions(map);
     } catch (err: any) {
       console.error(err);
       onError(err.message || "Could not synchronize Settings with Server.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTogglePermission = async (role: string, permKey: string) => {
+    const current = rolePermissions[role] || [];
+    const updated = current.includes(permKey)
+      ? current.filter(p => p !== permKey)
+      : [...current, permKey];
+    
+    setRolePermissions(prev => ({
+      ...prev,
+      [role]: updated
+    }));
+
+    try {
+      const res = await fetch("/api/rbac/permissions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role,
+          permissions: updated
+        })
+      });
+      if (!res.ok) throw new Error("Failed to save permission change.");
+    } catch (err: any) {
+      onError(err.message || "Error updating permission.");
+      // Rollback on error
+      setRolePermissions(prev => ({
+        ...prev,
+        [role]: current
+      }));
     }
   };
 
@@ -345,6 +414,8 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
         return "bg-amber-100 text-amber-800 border-amber-250";
       case "VP_COMMERCIAL":
         return "bg-rose-105 text-rose-800 border-rose-250";
+      case "SUPERADMIN":
+        return "bg-orange-100 text-orange-800 border-orange-250 font-black";
       default:
         return "bg-slate-50 text-slate-500 border-slate-200";
     }
@@ -355,6 +426,8 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
       case "TRAVEL_DESK": return "Travel Desk Operator";
       case "TRAVEL_APPROVER": return "Travel Approver (L1)";
       case "VP_COMMERCIAL": return "VP Commercial (L2)";
+      case "FINANCE": return "Finance Team (L3)";
+      case "SUPERADMIN": return "Super Administrator";
       default: return role;
     }
   };
@@ -443,52 +516,49 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
         </div>
 
         {/* CAPABILITIES COMPARISON MATRIX */}
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3">
-          <h4 className="text-xs font-extrabold uppercase text-slate-800 flex items-center gap-2">
-            <Key className="w-4 h-4 text-slate-500" />
-            <span>Simulated Capabilities & Role Permission Matrix</span>
-          </h4>
+        <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 space-y-4">
+          <div className="border-b border-slate-200 pb-3">
+            <h4 className="text-xs font-black uppercase text-slate-900 flex items-center gap-2">
+              <Key className="w-4 h-4 text-orange-500" />
+              <span>Dynamic Role Permissions Mapping Matrix</span>
+            </h4>
+            <p className="text-[9.5px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Toggle checkboxes below to dynamically grant or revoke permissions for each role. Changes are saved immediately.</p>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[10px] border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 text-slate-400 font-black uppercase tracking-wider">
-                  <th className="py-2 px-3 pl-0">Capability Descriptor</th>
-                  <th className="py-2 px-3">Travel Desk Operator (L0)</th>
-                  <th className="py-2 px-3">Travel Approver (L1)</th>
-                  <th className="py-2 px-3">VP Commercial (L2)</th>
+                <tr className="border-b-2 border-slate-200 text-slate-500 font-black uppercase tracking-wider">
+                  <th className="py-3 px-4 pl-0 min-w-[220px]">System Capability / Permission</th>
+                  <th className="py-3 px-4 text-center">Travel Desk (L0)</th>
+                  <th className="py-3 px-4 text-center">Approver (L1)</th>
+                  <th className="py-3 px-4 text-center">VP Commercial (L2)</th>
+                  <th className="py-3 px-4 text-center">Finance Team (L3)</th>
                 </tr>
               </thead>
               <tbody className="font-bold text-slate-700 divide-y divide-slate-100">
-                <tr>
-                  <td className="py-2.5 px-3 pl-0 uppercase text-slate-900 font-extrabold">Open Job Cards / Edit Quotes</td>
-                  <td className="py-2.5 px-3 text-emerald-600">✓ Full Access</td>
-                  <td className="py-2.5 px-3 text-slate-400">🚫 Read Only</td>
-                  <td className="py-2.5 px-3 text-slate-400">🚫 Read Only</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 pl-0 uppercase text-slate-900 font-extrabold">Authorize L1 Compliance Sign-off</td>
-                  <td className="py-2.5 px-3 text-slate-400">🚫 Locked</td>
-                  <td className="py-2.5 px-3 text-emerald-600">✓ Full Access</td>
-                  <td className="py-2.5 px-3 text-emerald-600">✓ Full Access</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 pl-0 uppercase text-slate-900 font-extrabold">Authorize L2 Final VP sign-off</td>
-                  <td className="py-2.5 px-3 text-slate-400">🚫 Locked</td>
-                  <td className="py-2.5 px-3 text-slate-400">🚫 Locked</td>
-                  <td className="py-2.5 px-3 text-rose-600">✓ VP Authorized Only</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 pl-0 uppercase text-slate-900 font-extrabold">Scan Receipts & Save Fulfillment</td>
-                  <td className="py-2.5 px-3 text-emerald-600">✓ Full Access</td>
-                  <td className="py-2.5 px-3 text-slate-400">🚫 Read Only</td>
-                  <td className="py-2.5 px-3 text-slate-400">🚫 Read Only</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 pl-0 uppercase text-slate-900 font-extrabold">Outbound Mail Transmit dispatch</td>
-                  <td className="py-2.5 px-3 text-emerald-600">✓ Full Access</td>
-                  <td className="py-2.5 px-3 text-slate-400">🚫 Read Only</td>
-                  <td className="py-2.5 px-3 text-slate-400">🚫 Read Only</td>
-                </tr>
+                {PERMISSIONS_LIST.map((perm) => (
+                  <tr key={perm.key} className="hover:bg-slate-100/50 transition-colors">
+                    <td className="py-3.5 pr-4 pl-0">
+                      <span className="text-[10.5px] font-black text-slate-900 block">{perm.name}</span>
+                      <span className="text-[8.5px] text-slate-500 font-semibold uppercase block mt-0.5">{perm.desc}</span>
+                    </td>
+                    {(["TRAVEL_DESK", "TRAVEL_APPROVER", "VP_COMMERCIAL", "FINANCE"] as const).map((role) => {
+                      const hasPerm = (rolePermissions[role] || []).includes(perm.key);
+                      return (
+                        <td key={role} className="py-3.5 px-4 text-center">
+                          <label className="inline-flex items-center justify-center cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={hasPerm}
+                              onChange={() => handleTogglePermission(role, perm.key)}
+                              className="w-4 h-4 accent-orange-600 rounded cursor-pointer"
+                            />
+                          </label>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -574,6 +644,7 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
                       <option value="TRAVEL_APPROVER">Travel Approver (L1)</option>
                       <option value="VP_COMMERCIAL">VP Commercial (L2)</option>
                       <option value="FINANCE">Finance Auditor</option>
+                      <option value="SUPERADMIN">Super Administrator (Super)</option>
                     </select>
                   </div>
                 </div>

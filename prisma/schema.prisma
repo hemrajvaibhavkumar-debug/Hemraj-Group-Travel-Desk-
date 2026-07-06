@@ -37,6 +37,7 @@ enum RbacRole {
   TRAVEL_APPROVER
   VP_COMMERCIAL
   FINANCE
+  SUPERADMIN
 }
 
 model Employee {
@@ -255,10 +256,16 @@ model AuditLog {
 }
 
 model RbacUser {
-  id    String   @id
-  name  String
-  email String   @unique
-  role  RbacRole
+  id           String   @id
+  name         String
+  email        String   @unique
+  role         RbacRole
+  passwordHash String
+}
+
+model RolePermission {
+  role        RbacRole @id
+  permissions Json     // Array of string permissions
 }
 
 model RbacSettings {

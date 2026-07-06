@@ -476,7 +476,7 @@ export default function PassportValidityDashboard({
                     <th className="p-4">Passport Details</th>
                     <th className="p-4">Expiration Date</th>
                     <th className="p-4">Days remaining</th>
-                    <th className="p-4">Visual Booklet</th>
+                    <th className="p-4">Attached Scans</th>
                     <th className="p-4 text-center">Compliance directives</th>
                   </tr>
                 </thead>
@@ -925,132 +925,41 @@ export default function PassportValidityDashboard({
                 </button>
               </div>
 
-              {/* MOCK VISUAL BOOKLET DESIGN PREVIEW */}
-              <div className="p-6 bg-slate-100 flex justify-center items-center">
-                <div className="w-full max-w-lg bg-orange-950 border-3 border-orange-900 rounded-3xl p-6 shadow-xl text-yellow-100/90 flex flex-col font-mono uppercase text-[9px] relative overflow-hidden" 
-                     style={{ minHeight: "260px", backgroundImage: "linear-gradient(135deg, #2D1A0D 0%, #150A05 100%)" }}
-                >
-                  {/* Watermark logo */}
-                  <div className="absolute inset-0 opacity-[0.03] flex items-center justify-center text-[190px] font-black pointer-events-none uppercase">
-                    IND
-                  </div>
-
-                  <div className="flex justify-between items-start border-b border-yellow-700/40 pb-3 mb-4 z-10">
-                    <div>
-                      <span className="text-[10px] font-serif tracking-widest block font-black text-amber-500/90">REPUBLIC OF INDIA</span>
-                      <span className="text-[7px] text-slate-400 block tracking-wider font-sans">PASSPORT DIVISION</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-amber-500/80 font-black block tracking-wider">BOOKLET TYPE: P</span>
-                      <span className="text-[8px] font-mono text-slate-300 block mt-0.5">PASSPORT NO: {viewDocEmp.passport_number || "X-XXXXXXX"}</span>
-                    </div>
-                  </div>
-
-                  {activeDocTab === "front" ? (
-                    /* FRONT PAGE EMBEDDED RENDER */
-                    <div className="grid grid-cols-12 gap-4 z-10 relative">
-                      
-                      <div className="col-span-4 bg-yellow-950/40 border border-yellow-800/60 rounded-xl p-1 flex flex-col items-center justify-center shrink-0" style={{ height: "120px" }}>
-                        {viewDocEmp.photograph_url ? (
-                          <img
-                            src={viewDocEmp.photograph_url}
-                            alt="Passport Photo"
-                            className="w-full h-full rounded object-cover filter sepia contrast-110 saturate-[0.6] brightness-90"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="text-[8px] text-slate-400 text-center font-serif py-8">
-                            [ PHOTO SCAN ]
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="col-span-8 space-y-1.5 font-bold tracking-tight">
-                        <div className="grid grid-cols-2 gap-x-2">
-                          <div>
-                            <span className="text-slate-400 text-[6.5px] block font-sans">SURNAME</span>
-                            <span className="text-amber-100 font-extrabold">{viewDocEmp.name.split(" ").slice(-1)[0] || "STAFF"}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400 text-[6.5px] block font-sans">GIVEN NAMES</span>
-                            <span className="text-amber-100 font-extrabold truncate block">{viewDocEmp.name.split(" ").slice(0, -1).join(" ") || "HEMRAJ"}</span>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-x-2">
-                          <div>
-                            <span className="text-slate-400 text-[6.5px] block font-sans">NATIONALITY</span>
-                            <span className="text-amber-100 font-extrabold">INDIAN</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400 text-[6.5px] block font-sans">SEX</span>
-                            <span className="text-amber-100 font-extrabold">M</span>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-x-2">
-                          <div>
-                            <span className="text-slate-400 text-[6.5px] block font-sans">DATE OF ISSUE</span>
-                            <span className="text-amber-100 font-mono font-black">{viewDocEmp.passport_issue_date || "2024-02-15"}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400 text-[6.5px] block font-sans">DATE OF EXPIRY</span>
-                            <span className="text-amber-400 font-mono font-black animate-pulse">{viewDocEmp.passport_expiry || "2029-02-14"}</span>
-                          </div>
-                        </div>
-
-                        <div className="pt-2">
-                          <span className="text-slate-400 text-[6.5px] block font-sans">REMARKS</span>
-                          <span className="text-emerald-400 text-[7px] font-black block tracking-wider">
-                            ✓ CRITICAL VISAS CLEARED 
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="col-span-12 font-mono text-[7px] text-amber-600/70 border-t border-yellow-805/30 mt-3 pt-2 tracking-widest break-all select-none">
-                        P&lt;IND{viewDocEmp.name.replaceAll(" ","&lt;").toUpperCase()}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;<br/>
-                        {viewDocEmp.passport_number || "XXXXXXXX"}&lt;IND&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;M981504&lt;&lt;&lt;O
-                      </div>
-
+              {/* PASSPORT SCANS ATTACHMENTS VIEW */}
+              <div className="p-6 bg-slate-100 flex justify-center items-center min-h-[300px]">
+                {activeDocTab === "front" ? (
+                  viewDocEmp.passport_front_page_url ? (
+                    <div className="w-full max-w-lg bg-white border-2 border-slate-900 rounded-2xl p-2 shadow-md flex items-center justify-center overflow-hidden" style={{ maxHeight: "400px" }}>
+                      <img 
+                        src={viewDocEmp.passport_front_page_url} 
+                        alt="Passport Front Page Scan" 
+                        className="max-w-full max-h-[380px] object-contain rounded-lg"
+                        referrerPolicy="no-referrer"
+                      />
                     </div>
                   ) : (
-                    /* BACK PAGE EMBEDDED RENDER */
-                    <div className="space-y-4 z-10 pr-2">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <span className="text-slate-400 text-[6.5px] block font-sans">NAME OF FATHER / LEGAL GUARDIAN</span>
-                          <span className="text-amber-100 font-extrabold block">LT. SH. RAMESH HEMRAJ</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[6.5px] block font-sans">NAME OF MOTHER</span>
-                          <span className="text-amber-100 font-extrabold block">SMT. SHOBHA HEMRAJ</span>
-                        </div>
-                      </div>
-
-                      <div className="pt-1">
-                        <span className="text-slate-400 text-[6.5px] block font-sans">ADDRESS SPECIFIED IN BOOKLET</span>
-                        <span className="text-amber-100 font-extrabold leading-relaxed block normal-case">
-                          102, Shanti Sadan Apartment, Juhu Tara Road, Mumbai, Maharashtra, Pin: 400049 (INDIA)
-                        </span>
-                      </div>
-
-                      <div className="pt-2 border-t border-yellow-800/40 grid grid-cols-2 gap-4">
-                        <div>
-                          <span className="text-slate-400 text-[6.5px] block font-sans">GOVERNMENT REGISTERING DISPATCH</span>
-                          <span className="text-amber-100 block">RPO MUMBAI (WEST)</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[6.5px] block font-sans">COMMISSIONS STAMP ID</span>
-                          <span className="text-emerald-500 font-black block">STAMP_VALIDATED_2026</span>
-                        </div>
-                      </div>
+                    <div className="w-full max-w-lg bg-white border border-dashed border-slate-300 rounded-2xl p-12 text-center text-slate-500 font-bold uppercase text-[10px]">
+                      <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <span>No Front Page Scan Uploaded</span>
                     </div>
-                  )}
-
-                  <div className="absolute right-3 bottom-3 text-[14px] font-black font-sans bg-amber-400/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded uppercase">
-                    Hemraj Group Spec
-                  </div>
-                </div>
+                  )
+                ) : (
+                  viewDocEmp.passport_back_page_url ? (
+                    <div className="w-full max-w-lg bg-white border-2 border-slate-900 rounded-2xl p-2 shadow-md flex items-center justify-center overflow-hidden" style={{ maxHeight: "400px" }}>
+                      <img 
+                        src={viewDocEmp.passport_back_page_url} 
+                        alt="Passport Back Page Scan" 
+                        className="max-w-full max-h-[380px] object-contain rounded-lg"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-full max-w-lg bg-white border border-dashed border-slate-300 rounded-2xl p-12 text-center text-slate-500 font-bold uppercase text-[10px]">
+                      <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <span>No Back Page Scan Uploaded</span>
+                    </div>
+                  )
+                )}
               </div>
 
               {/* MODAL FOOTER */}

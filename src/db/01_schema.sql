@@ -66,3 +66,17 @@ CREATE TABLE travel_indents (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_employee FOREIGN KEY (employee_code) REFERENCES employees(employee_code) ON DELETE CASCADE
 );
+
+-- 3. RBAC Tables
+CREATE TABLE rbac_users (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    role VARCHAR(50) NOT NULL CHECK (role IN ('TRAVEL_DESK', 'TRAVEL_APPROVER', 'VP_COMMERCIAL', 'FINANCE')),
+    password_hash VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE role_permissions (
+    role VARCHAR(50) PRIMARY KEY CHECK (role IN ('TRAVEL_DESK', 'TRAVEL_APPROVER', 'VP_COMMERCIAL', 'FINANCE')),
+    permissions JSON NOT NULL
+);

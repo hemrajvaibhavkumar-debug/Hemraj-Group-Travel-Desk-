@@ -1,0 +1,153 @@
+import React, { useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import { KeyRound, Mail, AlertTriangle, ShieldAlert, Sparkles, Building2 } from "lucide-react";
+import { motion } from "motion/react";
+
+export default function Login() {
+  const { login } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      setError("Please fill in both email and password.");
+      return;
+    }
+
+    try {
+      setError("");
+      setLoading(true);
+      await login(email, password);
+    } catch (err: any) {
+      setError(err.message || "Failed to log in.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQuickLogin = (quickEmail: string) => {
+    setEmail(quickEmail);
+    setPassword("Password123");
+  };
+
+  return (
+    <div className="min-h-screen w-screen bg-slate-950 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      {/* Decorative background gradients */}
+      <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-orange-600/10 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-amber-600/10 blur-[120px] pointer-events-none" />
+
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="w-full max-w-md bg-slate-900/40 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-8 shadow-2xl relative z-10"
+      >
+        <div className="text-center space-y-3 mb-8">
+          <div className="w-16 h-16 bg-gradient-to-tr from-orange-500 to-amber-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-500/20 mx-auto border border-orange-400/20">
+            <Building2 className="w-8 h-8 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black tracking-tight text-white uppercase">
+              HEMRAJ <span className="text-orange-500 font-medium">GROUP</span>
+            </h1>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">
+              Personal Travel Desk
+            </p>
+          </div>
+        </div>
+
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 bg-rose-500/15 border border-rose-500/30 text-rose-350 rounded-2xl flex items-start gap-3"
+          >
+            <ShieldAlert className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+            <div className="text-xs font-bold uppercase tracking-wide leading-relaxed">
+              <span className="font-black text-rose-400 block mb-0.5">Authentication Error</span>
+              {error}
+            </div>
+          </motion.div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-1.5">
+            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+              Corporate Email Address
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-4 top-3.5 w-4 h-4 text-slate-500" />
+              <input
+                type="email"
+                placeholder="name@hemrajgroup.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
+                className="w-full pl-11 pr-4 py-3 bg-slate-950/50 border border-slate-800 text-white rounded-2xl placeholder-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 text-xs font-semibold font-sans transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+              Security Password
+            </label>
+            <div className="relative">
+              <KeyRound className="absolute left-4 top-3.5 w-4 h-4 text-slate-500" />
+              <input
+                type="password"
+                placeholder="••••••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+                className="w-full pl-11 pr-4 py-3 bg-slate-950/50 border border-slate-800 text-white rounded-2xl placeholder-slate-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 text-xs font-semibold font-sans transition-all"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black uppercase tracking-widest rounded-2xl transition duration-150 active:scale-[0.98] shadow-lg shadow-orange-500/10 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? "Authenticating..." : "Sign In to Workspace"}
+          </button>
+        </form>
+
+        {/* Quick Login Developer Panel */}
+        <div className="mt-8 pt-6 border-t border-slate-800/80">
+          <div className="flex items-center gap-1.5 text-slate-500 mb-3.5">
+            <Sparkles className="w-3.5 h-3.5 text-orange-500" />
+            <span className="text-[9px] font-black uppercase tracking-widest">
+              Quick Switch simulated users (Dev-Mode)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: "Travel Desk", email: "subham4343@gmail.com" },
+              { label: "L1 Approver", email: "rohit.coo@hemrajgroup.com" },
+              { label: "L2 Approver", email: "vp.commercial@hemrajgroup.com" },
+              { label: "Finance Team", email: "finance@hemrajgroup.com" }
+            ].map((account) => (
+              <button
+                key={account.email}
+                type="button"
+                onClick={() => handleQuickLogin(account.email)}
+                className="px-3 py-2 bg-slate-950/40 border border-slate-800 hover:border-slate-700 text-[9px] font-black uppercase tracking-wide text-slate-300 rounded-xl transition hover:bg-slate-900/60 text-left truncate flex flex-col gap-0.5 cursor-pointer"
+              >
+                <span>{account.label}</span>
+                <span className="text-[8px] text-slate-500 font-semibold truncate lowercase">
+                  {account.email}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
