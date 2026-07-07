@@ -29,7 +29,7 @@ export default function PublicIndentForm() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/indents/public", {
+      const res = await fetch("/api/public-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -55,7 +55,7 @@ export default function PublicIndentForm() {
         throw new Error(data.error || "Failed to submit request.");
       }
 
-      setSuccessId(data.indent.id);
+      setSuccessId(data.request.id);
     } catch (err: any) {
       setErrorText(err.message || "Error submitting request.");
     } finally {

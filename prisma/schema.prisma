@@ -93,6 +93,7 @@ model Employee {
   indents                   TravelIndent[]
 
   created_at                DateTime       @default(now())
+  profile_completed         Boolean        @default(false)
   updated_at                DateTime       @updatedAt
 }
 
@@ -365,4 +366,25 @@ model ScanJob {
   error     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model PublicRequest {
+  id                           String   @id
+  travel_type                  String
+  traveler_name                String
+  traveler_email               String
+  traveler_phone               String
+  department                   String
+  designation                  String
+  origin                       String
+  destination                  String
+  travel_date                  String
+  is_return                    Boolean  @default(false)
+  domestic_connection_required Boolean  @default(false)
+  indent_raiser                String
+  travel_approver              String
+  approver_title               String
+  status                       String   @default("PENDING") // PENDING, PROMOTED
+  created_at                   DateTime @default(now())
+  updated_at                   DateTime @updatedAt
 }

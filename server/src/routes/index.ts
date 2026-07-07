@@ -6,6 +6,7 @@ import jobCardRouter from "./jobcard.routes";
 import integrationRouter from "./integration.routes";
 import scanRouter from "./scan.routes";
 import vendorRouter from "./vendor.routes";
+import publicRequestRouter from "./public-request.routes";
 
 const apiRouter = Router();
 
@@ -16,6 +17,7 @@ apiRouter.use("/indents", indentRouter); // handles /api/indents/*
 apiRouter.use("/job-cards", jobCardRouter); // handles /api/job-cards/*
 apiRouter.use("/job-cards", scanRouter); // handles /api/job-cards/scan/*
 apiRouter.use("/vendors", vendorRouter); // handles /api/vendors/*
+apiRouter.use("/public-requests", publicRequestRouter); // handles /api/public-requests/*
 apiRouter.use(integrationRouter); // handles /api/upload, /api/flights/*, /api/forex/rates, /api/schema, /api/health, /api/workorder/send
 
 export default apiRouter;

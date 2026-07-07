@@ -48,6 +48,43 @@ export default function IndentConsole({
   
   // Edit Indent state
   const [editingIndent, setEditingIndent] = useState<TravelIndent | null>(null);
+  const [publicRequests, setPublicRequests] = useState<any[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+
+  const fetchPublicRequests = async () => {
+    setLoadingRequests(true);
+    try {
+      const res = await fetch("/api/public-requests");
+      const data = await res.json();
+      if (res.ok) {
+        setPublicRequests(data.requests || []);
+      }
+    } catch (err) {
+      console.error("Error loading public requests:", err);
+    } finally {
+      setLoadingRequests(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchPublicRequests();
+  }, []);
+
+  const handleRejectRequest = async (id: string) => {
+    if (!confirm("Are you sure you want to reject and archive this request?")) return;
+    try {
+      const res = await fetch(`/api/public-requests/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "REJECTED" })
+      });
+      if (res.ok) {
+        setPublicRequests(prev => prev.filter(r => r.id !== id));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
   const [editForm, setEditForm] = useState<Partial<TravelIndent>>({});
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
@@ -170,7 +207,70 @@ export default function IndentConsole({
 
   return (
     <div id="indent-console-panel" className="space-y-6">
-      
+
+      {/* PUBLIC REQUESTS INTAKE QUEUE */}
+      {publicRequests.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-2 border-amber-250 p-6 rounded-3xl space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-amber-200">
+            <div className="flex items-center gap-2">
+              <FileCheck2 className="w-5 h-5 text-amber-600 animate-pulse" />
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-widest text-amber-950">Public Travel Request Intake Queue</h3>
+                <p className="text-[9px] font-black text-amber-700 uppercase tracking-wider mt-0.5">
+                  {publicRequests.length} pending requests to process & promote to indents
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {publicRequests.map((req) => (
+              <div key={req.id} className="bg-white border border-amber-200/60 rounded-2xl p-4 shadow-sm flex flex-col justify-between gap-3">
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-start">
+                    <span className="text-[9px] font-mono font-black text-slate-400">{req.id}</span>
+                    <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">
+                      {req.travel_type}
+                    </span>
+                  </div>
+                  
+                  <div className="text-xs text-slate-800 font-extrabold uppercase">
+                    {req.traveler_name} <span className="text-slate-400 font-medium">({req.department})</span>
+                  </div>
+                  
+                  <div className="text-[10px] font-bold text-slate-500 flex items-center gap-1.5">
+                    <MapPin className="w-3 h-3 text-slate-400" />
+                    {req.origin} → {req.destination}
+                  </div>
+
+                  <div className="text-[10px] font-bold text-slate-500 flex items-center gap-1.5">
+                    <Calendar className="w-3 h-3 text-slate-400" />
+                    Date: {req.travel_date}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2 border-t border-slate-100 justify-end">
+                  <button
+                    onClick={() => handleRejectRequest(req.id)}
+                    className="px-3 py-1.5 hover:bg-rose-50 text-rose-600 rounded-lg text-[9px] font-black uppercase tracking-wider transition cursor-pointer"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => {
+                      window.location.hash = `#/create/${req.id}`;
+                    }}
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition cursor-pointer flex items-center gap-1"
+                  >
+                    Process & Promote <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Active Indents View */}
       <div className="space-y-6">
         <div className="flex flex-col xl:flex-row gap-4 items-center justify-between pb-2">

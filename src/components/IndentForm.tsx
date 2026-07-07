@@ -4,19 +4,72 @@ import { Upload, HelpCircle, Save, CheckCircle2, AlertTriangle, RefreshCw, FileT
 
 interface IndentFormProps {
   employees: Employee[];
+  draftId?: string | null;
   onSubmit: (indent: Partial<TravelIndent>, employee?: Employee) => Promise<void>;
   onCancel: () => void;
 }
 
-export default function IndentForm({ employees, onSubmit, onCancel }: IndentFormProps) {
+export default function IndentForm({ employees, draftId, onSubmit, onCancel }: IndentFormProps) {
   // Toggle traveler sourcing
   const [useExistingEmployee, setUseExistingEmployee] = useState<boolean>(true);
   const [selectedEmpCode, setSelectedEmpCode] = useState<string>("");
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isCompletingExisting, setIsCompletingExisting] = useState<boolean>(false);
+  const [completingEmpCode, setCompletingEmpCode] = useState<string>("");
   
   // Validation State
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    if (draftId) {
+      fetch("/api/public-requests")
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.requests) {
+            const draft = data.requests.find((r: any) => r.id === draftId);
+            if (draft) {
+              // Prefill travel parameters
+              setTravelForm(prev => ({
+                ...prev,
+                type: (draft.travel_type || "DOMESTIC") as TravelCategory,
+                date: draft.travel_date || "",
+                wpNumber: draft.traveler_phone || "",
+                nearestBoardingPoint: draft.origin || "",
+                from: draft.origin || "",
+                to: draft.destination || "",
+                travelApprover: draft.travel_approver || "",
+                approverTitle: draft.approver_title || "",
+                indentRaiser: draft.indent_raiser || ""
+              }));
+
+              // Look up if traveler already exists in corporate master
+              const matchedEmp = employees.find(
+                e => e.email.toLowerCase() === draft.traveler_email.toLowerCase()
+              );
+
+              if (matchedEmp) {
+                setUseExistingEmployee(true);
+                setSelectedEmpCode(matchedEmp.employee_code);
+              } else {
+                setUseExistingEmployee(false);
+                setTravelerForm(prev => ({
+                  ...prev,
+                  name: draft.traveler_name || "",
+                  email: draft.traveler_email || "",
+                  phone: draft.traveler_phone || "",
+                  designation: draft.designation || "",
+                  department: draft.department || "Purchase",
+                  defaultTravelApprover: draft.travel_approver || "",
+                  approverDesignation: draft.approver_title || ""
+                }));
+              }
+            }
+          }
+        })
+        .catch(err => console.error("Error loading request draft:", err));
+    }
+  }, [draftId, employees]);
 
   // ID Scanner state
   const [scanningId, setScanningId] = useState(false);
@@ -106,6 +159,56 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
     if (Object.keys(section2Errors).length === 0) {
       setFormErrors({});
       
+      // Enforce traveler profile completion if an incomplete existing employee is selected
+      if (useExistingEmployee && !isCompletingExisting) {
+        const emp = employees.find(e => e.employee_code === selectedEmpCode);
+        if (emp && !emp.profile_completed) {
+          setUseExistingEmployee(false);
+          setIsCompletingExisting(true);
+          setCompletingEmpCode(emp.employee_code);
+
+          setTravelerForm(prev => ({
+            ...prev,
+            employeeId: emp.employee_code,
+            aadharPanNumber: emp.aadhar_pan_number || "",
+            name: emp.name || "",
+            email: emp.email || "",
+            phone: emp.phone || "",
+            designation: emp.designation || "",
+            department: (emp.department as Department) || "Purchase",
+            defaultTravelApprover: emp.default_travel_approver || "",
+            approverDesignation: emp.approver_designation || "",
+            costCentre: emp.cost_centre || "",
+            defaultBillingCurrency: (emp.default_billing_currency as BillingCurrency) || "INR",
+            nativeCity: emp.native_city || "",
+            nearestAirport: emp.nearest_airport || "",
+            nearestRailwayStation: emp.nearest_railway_station || "",
+            defaultModeOfTransport: emp.default_mode_of_transport || "",
+            extraBaggageRequired: emp.extra_baggage_required || false,
+            photographUrl: emp.photograph_url || "",
+            supportingDocumentsUrl: emp.supporting_documents_url || "",
+            presentLocationAbroad: emp.present_location_abroad || "",
+            assignedPlantSite: emp.assigned_plant_site || "",
+            nearestAirportIndia: emp.nearest_airport_india || "",
+            passportNumber: emp.passport_number || "",
+            passportIssueDate: emp.passport_issue_date || "",
+            passportExpiry: emp.passport_expiry || "",
+            polioVaccineStatus: emp.polio_vaccine_status || "Vaccinated",
+            polioCertificateExpiry: emp.polio_certificate_expiry || "",
+            yfvStatus: emp.yfv_status || "Vaccinated",
+            yfvCertificateExpiry: emp.yfv_certificate_expiry || "",
+            visaNumber: emp.visa_number || "",
+            visaExpiryDate: emp.visa_expiry_date || "",
+            visaCountry: emp.visa_country || "",
+            trainPreferredClass: emp.train_preferred_class || "",
+            trainBerthPreference: emp.train_berth_preference || "",
+            trainMealPreference: emp.train_meal_preference || "",
+            trainPreferredNumber: emp.train_preferred_number || "",
+          }));
+          return;
+        }
+      }
+
       // Auto-propagate traveler profile defaults to Step 2 Travel Particulars
       let defaultApprover = "";
       let defaultTitle = "";
@@ -160,7 +263,15 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
   };
 
   const prevStep = () => {
-    setCurrentStep(1);
+    if (currentStep === 2) {
+      setCurrentStep(1);
+    } else if (currentStep === 1 && isCompletingExisting) {
+      setUseExistingEmployee(true);
+      setIsCompletingExisting(false);
+      setCompletingEmpCode("");
+    } else {
+      onCancel();
+    }
   };
 
   // 1. Section 1 State: Travel Particulars
@@ -532,7 +643,8 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
           yfv_certificate_expiry: travelerForm.yfvCertificateExpiry || undefined,
           visa_number: travelerForm.visaNumber || undefined,
           visa_expiry_date: travelerForm.visaExpiryDate || undefined,
-          visa_country: travelerForm.visaCountry || undefined
+          visa_country: travelerForm.visaCountry || undefined,
+          profile_completed: true
         };
         targetEmployeeCode = empCode;
       }
@@ -560,6 +672,13 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
       };
 
       await onSubmit(indentPayload, finalEmployee);
+      if (draftId) {
+        await fetch(`/api/public-requests/${draftId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "PROMOTED" })
+        }).catch(err => console.error("Failed to promote request draft:", err));
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -633,43 +752,50 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
             </div>
 
             {/* Selector Tabs: Existing Employee vs Register Profile */}
-            <div className="bg-slate-50 p-1 rounded-xl flex gap-1 mb-6 max-w-md">
-              <button
-                id="btn-source-existing"
-                type="button"
-                onClick={() => {
-                  setUseExistingEmployee(true);
-                  // Clear any traveler validations
-                  setFormErrors(prev => {
-                    const copy = { ...prev };
-                    Object.keys(copy).forEach(k => {
-                      if (k.startsWith("traveler_")) delete copy[k];
-                    });
-                    return copy;
-                  });
-                }}
-                className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${useExistingEmployee ? "bg-white text-teal-900 shadow-xs border border-slate-100" : "text-slate-500 hover:text-slate-800"}`}
-              >
-                Select Existing Traveler
-              </button>
-              <button
-                id="btn-source-new"
-                type="button"
-                onClick={() => {
-                  setUseExistingEmployee(false);
-                  if (formErrors.selectedEmpCode) {
+            {isCompletingExisting ? (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider mb-6 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Traveler Profile Completion Mode: Updating {travelerForm.name} ({travelerForm.employeeId})</span>
+              </div>
+            ) : (
+              <div className="bg-slate-50 p-1 rounded-xl flex gap-1 mb-6 max-w-md">
+                <button
+                  id="btn-source-existing"
+                  type="button"
+                  onClick={() => {
+                    setUseExistingEmployee(true);
+                    // Clear any traveler validations
                     setFormErrors(prev => {
                       const copy = { ...prev };
-                      delete copy.selectedEmpCode;
+                      Object.keys(copy).forEach(k => {
+                        if (k.startsWith("traveler_")) delete copy[k];
+                      });
                       return copy;
                     });
-                  }
-                }}
-                className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${!useExistingEmployee ? "bg-white text-teal-900 shadow-xs border border-slate-100" : "text-slate-500 hover:text-slate-800"}`}
-              >
-                Register New Profile
-              </button>
-            </div>
+                  }}
+                  className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${useExistingEmployee ? "bg-white text-teal-900 shadow-xs border border-slate-100" : "text-slate-500 hover:text-slate-800"}`}
+                >
+                  Select Existing Traveler
+                </button>
+                <button
+                  id="btn-source-new"
+                  type="button"
+                  onClick={() => {
+                    setUseExistingEmployee(false);
+                    if (formErrors.selectedEmpCode) {
+                      setFormErrors(prev => {
+                        const copy = { ...prev };
+                        delete copy.selectedEmpCode;
+                        return copy;
+                      });
+                    }
+                  }}
+                  className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${!useExistingEmployee ? "bg-white text-teal-900 shadow-xs border border-slate-100" : "text-slate-500 hover:text-slate-800"}`}
+                >
+                  Register New Profile
+                </button>
+              </div>
+            )}
 
             {useExistingEmployee ? (
               /* EXISTS EMP SELECTOR FIELD */
@@ -2115,7 +2241,7 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
             Cancel
           </button>
           <div className="flex gap-4">
-            {currentStep === 2 && (
+            {(currentStep === 2 || (currentStep === 1 && isCompletingExisting)) && (
               <button
                 type="button"
                 onClick={prevStep}

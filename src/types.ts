@@ -22,6 +22,7 @@ export interface Employee {
   approver_designation: string;
   cost_centre: string;
   default_billing_currency: string;
+  profile_completed?: boolean;
   
   // Domestic profile fields
   native_city?: string; // baseCity / native_state

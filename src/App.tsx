@@ -180,12 +180,19 @@ export default function App() {
     setErrorText("");
     setSuccessText("");
     try {
-      // 1. If registering a new traveler profile first
+      // 1. If registering a new traveler profile or completing an existing one
       if (employee) {
-        const empRes = await fetch("/api/employees", {
-          method: "POST",
+        const isExisting = employees.some(e => e.employee_code === employee.employee_code);
+        const method = isExisting ? "PUT" : "POST";
+        const url = isExisting ? `/api/employees/${employee.employee_code}` : "/api/employees";
+
+        const empRes = await fetch(url, {
+          method,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(employee)
+          body: JSON.stringify({
+            ...employee,
+            profile_completed: true
+          })
         });
 
         const empData = await empRes.json();
@@ -193,8 +200,11 @@ export default function App() {
           throw new Error(empData.error || "Failed registering new employee profile under Check Constraints.");
         }
         
-        // Append locally to prevent extra fetch
-        setEmployees(prev => [employee, ...prev]);
+        if (isExisting) {
+          setEmployees(prev => prev.map(e => e.employee_code === employee.employee_code ? { ...e, ...employee, profile_completed: true } : e));
+        } else {
+          setEmployees(prev => [{ ...employee, profile_completed: true }, ...prev]);
+        }
       }
 
       // 2. Submit the Travel Indent
@@ -867,8 +877,11 @@ export default function App() {
                     ) : currentView === "create" ? (
                       <IndentForm
                         employees={employees}
+                        draftId={currentId}
                         onSubmit={handleCreateIndent}
-                        onCancel={() => setCurrentView("dashboard")}
+                        onCancel={() => {
+                          window.location.hash = "#/indents";
+                        }}
                       />
                     ) : currentView === "jobcards" ? (
                       <JobCardManager
