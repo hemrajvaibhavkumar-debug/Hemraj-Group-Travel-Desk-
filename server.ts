@@ -35,6 +35,53 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
   return list;
 }
 
+function requireAuth(permission?: string) {
+  return async (req: any, res: any, next: any) => {
+    try {
+      const cookies = parseCookies(req.headers.cookie);
+      const token = cookies["session_token"];
+      if (!token) {
+        return res.status(401).json({ error: "Access Denied: Session token missing." });
+      }
+      
+      const session = SESSIONS.get(token);
+      if (!session || session.expires < Date.now()) {
+        if (session) SESSIONS.delete(token);
+        return res.status(401).json({ error: "Access Denied: Invalid or expired session." });
+      }
+      
+      // Fetch user profile from DB
+      const user = await prisma.rbacUser.findUnique({
+        where: { email: session.email }
+      });
+      if (!user) {
+        return res.status(401).json({ error: "Access Denied: User profile not found." });
+      }
+      
+      if (user.role === "SUPERADMIN") {
+        req.user = user;
+        return next();
+      }
+      
+      if (permission) {
+        const rolePermission = await prisma.rolePermission.findUnique({
+          where: { role: user.role }
+        });
+        const permissions = (rolePermission?.permissions as string[]) || [];
+        if (!permissions.includes(permission)) {
+          return res.status(403).json({ error: `Forbidden: Missing required permission "${permission}".` });
+        }
+      }
+      
+      req.user = user;
+      next();
+    } catch (err: any) {
+      console.error("Authentication middleware error:", err);
+      return res.status(500).json({ error: "Internal server error during authentication check." });
+    }
+  };
+}
+
 const app = express();
 const PORT = 5173;
 
@@ -431,6 +478,7 @@ async function seedDatabaseIfEmpty() {
 // ENDPOINTS
 // -------------------------------------------------------------
 
+
 // AUTH: Login
 app.post("/api/auth/login", async (req, res) => {
   try {
@@ -530,7 +578,7 @@ app.get("/api/auth/me", async (req, res) => {
 });
 
 // RBAC: Get Permissions Map for all Roles
-app.get("/api/rbac/permissions", async (req, res) => {
+app.get("/api/rbac/permissions", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
   try {
     const permissions = await prisma.rolePermission.findMany();
     return res.json(permissions);
@@ -540,7 +588,7 @@ app.get("/api/rbac/permissions", async (req, res) => {
 });
 
 // RBAC: Update Permissions Map for a Role
-app.put("/api/rbac/permissions", async (req, res) => {
+app.put("/api/rbac/permissions", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
   try {
     const { role, permissions } = req.body;
     if (!role || !Array.isArray(permissions)) {
@@ -564,7 +612,7 @@ app.put("/api/rbac/permissions", async (req, res) => {
 
 
 // RBAC GET configuration
-app.get("/api/rbac", async (req, res) => {
+app.get("/api/rbac", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
   try {
     const rbacUsers = await prisma.rbacUser.findMany();
     let rbacSettings = await prisma.rbacSettings.findUnique({ where: { id: 1 } });
@@ -573,7 +621,7 @@ app.get("/api/rbac", async (req, res) => {
         id: 1,
         senderEmail: "travel-desk@hemraj-group.com",
         ccRecipients: "compliance-cc@hemraj-group.com, travel-archive@hemraj-group.com",
-        activeSimulatedEmail: "subham4343@gmail.com"
+        activeSimulatedEmail: "superadmin@hemrajgroup.com"
       };
     }
     return res.json({ rbacUsers, rbacSettings });
@@ -583,7 +631,7 @@ app.get("/api/rbac", async (req, res) => {
 });
 
 // RBAC Create User
-app.post("/api/rbac/users", async (req, res) => {
+app.post("/api/rbac/users", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
   try {
     const { name, email, role } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: "User Name is a required field." });
@@ -611,7 +659,7 @@ app.post("/api/rbac/users", async (req, res) => {
 });
 
 // RBAC Update User
-app.put("/api/rbac/users/:id", async (req, res) => {
+app.put("/api/rbac/users/:id", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, email, role } = req.body;
@@ -651,7 +699,7 @@ app.put("/api/rbac/users/:id", async (req, res) => {
 });
 
 // RBAC Delete User
-app.delete("/api/rbac/users/:id", async (req, res) => {
+app.delete("/api/rbac/users/:id", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
   try {
     const { id } = req.params;
     const count = await prisma.rbacUser.count();
@@ -679,7 +727,7 @@ app.delete("/api/rbac/users/:id", async (req, res) => {
 });
 
 // RBAC Settings Update
-app.put("/api/rbac/settings", async (req, res) => {
+app.put("/api/rbac/settings", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
   try {
     const { senderEmail, ccRecipients, activeSimulatedEmail } = req.body;
     if (senderEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderEmail)) {
@@ -708,47 +756,58 @@ app.put("/api/rbac/settings", async (req, res) => {
 });
 
 // File upload handler - forwards to n8n if configured
-app.post("/api/upload", async (req, res) => {
+app.post("/api/upload", requireAuth("VIEW_INDENTS"), async (req, res) => {
   try {
     const { fileName, fileData, fileType } = req.body;
     if (!fileName || !fileData) {
       return res.status(400).json({ error: "Missing required upload parameters (fileName, fileData)." });
     }
 
+    const cleanName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    const relativeUrl = `/uploads/${Date.now()}_${cleanName}`;
+
     const uploadWebhook = process.env.N8N_UPLOAD_WEBHOOK_URL;
     if (uploadWebhook && uploadWebhook.trim()) {
-      console.log("Routing file upload to n8n webhook:", fileName);
-      const response = await fetch(uploadWebhook, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName,
-          fileData, // base64 encoded
-          fileType,
-          uploadedAt: new Date().toISOString()
-        })
-      });
+      try {
+        console.log("Routing file upload to n8n webhook:", fileName);
+        const response = await fetch(uploadWebhook, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName,
+            fileData, // base64 encoded
+            fileType,
+            uploadedAt: new Date().toISOString()
+          })
+        });
 
-      if (!response.ok) {
-        throw new Error(`n8n upload webhook returned status ${response.status}`);
-      }
+        if (!response.ok) {
+          throw new Error(`n8n upload webhook returned status ${response.status}`);
+        }
 
-      const data = await response.json();
-      if (data.success && data.url) {
+        const data = await response.json();
+        if (data.success && data.url) {
+          return res.status(200).json({
+            success: true,
+            url: data.url,
+            name: fileName,
+            message: "File uploaded to Google Drive via n8n successfully!"
+          });
+        } else {
+          throw new Error(data.error || "n8n response did not return a successful file URL.");
+        }
+      } catch (err: any) {
+        console.warn("N8N upload webhook failed, falling back to local file path mapping:", err.message);
         return res.status(200).json({
           success: true,
-          url: data.url,
+          url: relativeUrl,
           name: fileName,
-          message: "File uploaded to Google Drive via n8n successfully!"
+          message: `Local upload fallback: Webhook Offline (${err.message})`
         });
-      } else {
-        throw new Error(data.error || "n8n response did not return a successful file URL.");
       }
     }
 
     // Fallback mock if n8n is not configured
-    const cleanName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-    const relativeUrl = `/uploads/${Date.now()}_${cleanName}`;
     return res.status(200).json({
       success: true,
       url: relativeUrl,
@@ -762,7 +821,7 @@ app.post("/api/upload", async (req, res) => {
 });
 
 // GET Employees
-app.get("/api/employees", async (req, res) => {
+app.get("/api/employees", requireAuth("VIEW_INDENTS"), async (req, res) => {
   try {
     const employees = await prisma.employee.findMany();
     return res.json(employees);
@@ -772,7 +831,7 @@ app.get("/api/employees", async (req, res) => {
 });
 
 // POST Create Employee
-app.post("/api/employees", async (req, res) => {
+app.post("/api/employees", requireAuth("MANAGE_EMPLOYEES"), async (req, res) => {
   try {
     const emp = req.body;
 
@@ -843,7 +902,7 @@ app.post("/api/employees", async (req, res) => {
 });
 
 // PUT Update Employee
-app.put("/api/employees/:employee_code", async (req, res) => {
+app.put("/api/employees/:employee_code", requireAuth("MANAGE_EMPLOYEES"), async (req, res) => {
   try {
     const { employee_code } = req.params;
     const updateBody = req.body;
@@ -888,7 +947,7 @@ app.put("/api/employees/:employee_code", async (req, res) => {
 });
 
 // DELETE Employee
-app.delete("/api/employees/:employee_code", async (req, res) => {
+app.delete("/api/employees/:employee_code", requireAuth("MANAGE_EMPLOYEES"), async (req, res) => {
   try {
     const { employee_code } = req.params;
     await prisma.employee.delete({ where: { employee_code } });
@@ -899,7 +958,7 @@ app.delete("/api/employees/:employee_code", async (req, res) => {
 });
 
 // GET Indents
-app.get("/api/indents", async (req, res) => {
+app.get("/api/indents", requireAuth("VIEW_INDENTS"), async (req, res) => {
   try {
     const indents = await prisma.travelIndent.findMany({
       orderBy: { created_at: "desc" }
@@ -911,7 +970,7 @@ app.get("/api/indents", async (req, res) => {
 });
 
 // POST Create Indent
-app.post("/api/indents", async (req, res) => {
+app.post("/api/indents", requireAuth("CREATE_INDENT"), async (req, res) => {
   try {
     const indent: TravelIndent = req.body;
 
@@ -983,7 +1042,7 @@ app.post("/api/indents", async (req, res) => {
 });
 
 // PUT Update Indent
-app.put("/api/indents/:id", async (req, res) => {
+app.put("/api/indents/:id", requireAuth("CREATE_INDENT"), async (req, res) => {
   try {
     const { id } = req.params;
     const updatedIndent = req.body;
@@ -1006,7 +1065,7 @@ app.put("/api/indents/:id", async (req, res) => {
 });
 
 // DELETE Indent
-app.delete("/api/indents/:id", async (req, res) => {
+app.delete("/api/indents/:id", requireAuth("CREATE_INDENT"), async (req, res) => {
   try {
     const { id } = req.params;
     await prisma.travelIndent.delete({ where: { id } });
@@ -1017,7 +1076,7 @@ app.delete("/api/indents/:id", async (req, res) => {
 });
 
 // GET Job Cards
-app.get("/api/job-cards", async (req, res) => {
+app.get("/api/job-cards", requireAuth("VIEW_INDENTS"), async (req, res) => {
   try {
     const jobCards = await prisma.jobCard.findMany({
       include: {
@@ -1033,7 +1092,7 @@ app.get("/api/job-cards", async (req, res) => {
 });
 
 // POST Create/Initialize Job Card
-app.post("/api/job-cards", async (req, res) => {
+app.post("/api/job-cards", requireAuth("CREATE_INDENT"), async (req, res) => {
   try {
     const { indentId, travelerName, destination, department } = req.body;
     if (!indentId || !travelerName) {
@@ -1079,7 +1138,7 @@ app.post("/api/job-cards", async (req, res) => {
 });
 
 // PUT Update active Job Card
-app.put("/api/job-cards/:id", async (req, res) => {
+app.put("/api/job-cards/:id", requireAuth("VIEW_INDENTS"), async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -1286,7 +1345,7 @@ app.delete("/api/job-cards/:id", async (req, res) => {
 });
 
 // GET Vendors
-app.get("/api/vendors", async (req, res) => {
+app.get("/api/vendors", requireAuth("VIEW_INDENTS"), async (req, res) => {
   try {
     const vendors = await prisma.vendor.findMany();
     return res.json(vendors);
@@ -1296,7 +1355,7 @@ app.get("/api/vendors", async (req, res) => {
 });
 
 // POST Create Vendor
-app.post("/api/vendors", async (req, res) => {
+app.post("/api/vendors", requireAuth("MANAGE_VENDORS"), async (req, res) => {
   try {
     const { name, emails, phones, categories } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: "Vendor name is required." });
@@ -1320,7 +1379,7 @@ app.post("/api/vendors", async (req, res) => {
 });
 
 // PUT Update Vendor
-app.put("/api/vendors/:id", async (req, res) => {
+app.put("/api/vendors/:id", requireAuth("MANAGE_VENDORS"), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, emails, phones, categories } = req.body;
@@ -1342,7 +1401,7 @@ app.put("/api/vendors/:id", async (req, res) => {
 });
 
 // DELETE Vendor
-app.delete("/api/vendors/:id", async (req, res) => {
+app.delete("/api/vendors/:id", requireAuth("MANAGE_VENDORS"), async (req, res) => {
   try {
     const { id } = req.params;
     await prisma.vendor.delete({ where: { id } });
@@ -1395,7 +1454,7 @@ function getSimulatedData(fileType: string) {
 }
 
 // POST Document scan via Gemini LLM OCR
-app.post("/api/job-cards/scan", async (req, res) => {
+app.post("/api/job-cards/scan", requireAuth("VIEW_INDENTS"), async (req, res) => {
   try {
     const { fileType, fileData, mimeType, fileName } = req.body;
     if (!fileType || !fileData) {

@@ -334,6 +334,7 @@ export default function JobCardManager({
   const [reconVarianceJustification, setReconVarianceJustification] = useState("");
 
   // Cancellation / Rescheduling modal states
+  const [showFinanceSuccessPopup, setShowFinanceSuccessPopup] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelModalType, setCancelModalType] = useState<'CANCEL' | 'RESCHEDULE'>('CANCEL');
   const [cancellationReasonInput, setCancellationReasonInput] = useState("");
@@ -1699,6 +1700,7 @@ export default function JobCardManager({
       const data = await res.json();
       if (data.jobCard) applyOptimisticUpdate(data.jobCard);
       triggerSuccess("Finance payment released successfully! Ticket moved to Reconciliation Audits.");
+      setShowFinanceSuccessPopup(true);
       setFinanceVarianceReason("");
     } catch (err: any) {
       triggerError(err.message);
@@ -5206,6 +5208,51 @@ export default function JobCardManager({
           </motion.div>
         </div>
       )}
+      {/* FINANCE SUCCESS WEBHOOK DISPATCH POPUP */}
+      <AnimatePresence>
+        {showFinanceSuccessPopup && (
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white border-2 border-slate-900 rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl relative space-y-6 text-center"
+            >
+              <div className="w-16 h-16 bg-emerald-100 border-2 border-emerald-500 text-emerald-600 rounded-full flex items-center justify-center shadow-md mx-auto animate-bounce">
+                <CheckCircle2 className="w-9 h-9" />
+              </div>
+              
+              <div className="space-y-2">
+                <span className="text-[10px] font-black tracking-widest text-emerald-600 uppercase block">
+                  Data Dispatched Successfully
+                </span>
+                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">
+                  Finance Released & Sync'd
+                </h3>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider leading-relaxed">
+                  The invoice approval details, billing variance reports, and transaction records have been compiled and sent to the **Finance Team's Google Sheets Ledger** via our automated pipeline.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center gap-3 text-left">
+                <Building2 className="w-6 h-6 text-slate-500 shrink-0" />
+                <div>
+                  <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Target Ledger Destination</span>
+                  <span className="text-[11px] font-black text-slate-800 uppercase block">Finance Operations Master Sheet</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowFinanceSuccessPopup(false)}
+                className="w-full py-3 bg-slate-950 hover:bg-slate-800 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition cursor-pointer"
+              >
+                Acknowledge & Proceed
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
