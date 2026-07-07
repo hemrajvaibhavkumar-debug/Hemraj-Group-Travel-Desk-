@@ -1,16 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { TravelIndent, Employee, JobCard, RbacUser, RbacSettings, Vendor } from "./types";
 import { useAuth } from "./context/AuthContext";
 import Login from "./components/Login";
 import { usePersistedState } from "./hooks/usePersistedState";
 import IndentConsole from "./components/IndentConsole";
 import IndentForm from "./components/IndentForm";
-import JobCardManager from "./components/JobCardManager";
-import PassportValidityDashboard from "./components/PassportValidityDashboard";
-import SettingsPanel from "./components/SettingsPanel";
-import EmployeesDashboard from "./components/EmployeesDashboard";
 import DashboardReports from "./components/DashboardReports";
-import FlightSearchHub from "./components/FlightSearchHub";
+
+// Lazy-loaded heavy components for code-splitting
+const JobCardManager = lazy(() => import("./components/JobCardManager"));
+const PassportValidityDashboard = lazy(() => import("./components/PassportValidityDashboard"));
+const SettingsPanel = lazy(() => import("./components/SettingsPanel"));
+const EmployeesDashboard = lazy(() => import("./components/EmployeesDashboard"));
+const FlightSearchHub = lazy(() => import("./components/FlightSearchHub"));
 import { 
   Building2, Briefcase, Database, Users, HelpCircle, 
   MapPin, ShieldAlert, CheckCircle2, RefreshCw,
@@ -841,52 +843,63 @@ export default function App() {
                     onCreateNewClick={() => setCurrentView("create")}
                     onApproveAndCreateJobCard={handleApproveAndCreateJobCard}
                   />
-                ) : currentView === "employees" ? (
-                  <EmployeesDashboard
-                    employees={employees}
-                    onDeleteEmployee={handleDeleteEmployee}
-                    onEditEmployee={handleUpdateEmployee}
-                    onAddEmployee={handleAddEmployee}
-                  />
-                ) : currentView === "create" ? (
-                  <IndentForm
-                    employees={employees}
-                    onSubmit={handleCreateIndent}
-                    onCancel={() => setCurrentView("dashboard")}
-                  />
-                ) : currentView === "jobcards" ? (
-                  <JobCardManager
-                    indents={indents}
-                    employees={employees}
-                    jobCards={jobCards}
-                    onRefresh={fetchData}
-                    onSelectView={setCurrentView}
-                    activeRole={activeRole}
-                    activeUserName={user?.name || "Corporate Admin"}
-                    senderEmail={senderEmail}
-                    ccRecipients={ccRecipients}
-                    activeTab={activeTab}
-                    setActiveTab={setActiveTab}
-                    kanbanView={kanbanView}
-                    setKanbanView={setKanbanView}
-                    selectedCardId={currentId}
-                    onSelectCard={handleSelectCard}
-                    forexRates={forexRates}
-                  />
-                ) : currentView === "passports" ? (
-                  <PassportValidityDashboard
-                    employees={employees}
-                    onUpdateEmployee={handleUpdateEmployee}
-                    onRefresh={fetchData}
-                  />
-                ) : currentView === "flight-search" ? (
-                  <FlightSearchHub forexRates={forexRates} />
                 ) : (
-                  <SettingsPanel
-                    onRefreshAllData={fetchData}
-                    onError={setErrorText}
-                    onSuccess={setSuccessText}
-                  />
+                  <Suspense fallback={
+                    <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+                      <div className="w-12 h-12 border-4 border-slate-900 border-t-orange-500 rounded-full animate-spin"></div>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">
+                        Loading Workspace Panel...
+                      </span>
+                    </div>
+                  }>
+                    {currentView === "employees" ? (
+                      <EmployeesDashboard
+                        employees={employees}
+                        onDeleteEmployee={handleDeleteEmployee}
+                        onEditEmployee={handleUpdateEmployee}
+                        onAddEmployee={handleAddEmployee}
+                      />
+                    ) : currentView === "create" ? (
+                      <IndentForm
+                        employees={employees}
+                        onSubmit={handleCreateIndent}
+                        onCancel={() => setCurrentView("dashboard")}
+                      />
+                    ) : currentView === "jobcards" ? (
+                      <JobCardManager
+                        indents={indents}
+                        employees={employees}
+                        jobCards={jobCards}
+                        onRefresh={fetchData}
+                        onSelectView={setCurrentView}
+                        activeRole={activeRole}
+                        activeUserName={user?.name || "Corporate Admin"}
+                        senderEmail={senderEmail}
+                        ccRecipients={ccRecipients}
+                        activeTab={activeTab}
+                        setActiveTab={setActiveTab}
+                        kanbanView={kanbanView}
+                        setKanbanView={setKanbanView}
+                        selectedCardId={currentId}
+                        onSelectCard={handleSelectCard}
+                        forexRates={forexRates}
+                      />
+                    ) : currentView === "passports" ? (
+                      <PassportValidityDashboard
+                        employees={employees}
+                        onUpdateEmployee={handleUpdateEmployee}
+                        onRefresh={fetchData}
+                      />
+                    ) : currentView === "flight-search" ? (
+                      <FlightSearchHub forexRates={forexRates} />
+                    ) : (
+                      <SettingsPanel
+                        onRefreshAllData={fetchData}
+                        onError={setErrorText}
+                        onSuccess={setSuccessText}
+                      />
+                    )}
+                  </Suspense>
                 )}
               </div>
             )}

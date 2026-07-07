@@ -77,6 +77,31 @@ CREATE TABLE rbac_users (
 );
 
 CREATE TABLE role_permissions (
-    role VARCHAR(50) PRIMARY KEY CHECK (role IN ('TRAVEL_DESK', 'TRAVEL_APPROVER', 'VP_COMMERCIAL', 'FINANCE')),
+    role VARCHAR(50) PRIMARY KEY CHECK (role IN ('TRAVEL_DESK', 'TRAVEL_APPROVER', 'VP_COMMERCIAL', 'FINANCE', 'SUPERADMIN')),
     permissions JSON NOT NULL
 );
+
+-- 4. Session Store Table
+CREATE TABLE sessions (
+    id VARCHAR(255) PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_sessions_email ON sessions(email);
+
+-- 5. Async Scan Jobs Table
+CREATE TABLE scan_jobs (
+    id VARCHAR(255) PRIMARY KEY,
+    file_type VARCHAR(100) NOT NULL,
+    status VARCHAR(50) NOT NULL CHECK (status IN ('PENDING', 'COMPLETED', 'FAILED')),
+    result JSON,
+    error TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Optimization Indexes
+CREATE INDEX idx_job_cards_indent ON job_cards(indentId);
+CREATE INDEX idx_job_card_quotes_card ON job_card_quotes(jobCardId);
+CREATE INDEX idx_audit_logs_card ON audit_logs(jobCardId);
+CREATE INDEX idx_travel_indents_emp ON travel_indents(employee_code);

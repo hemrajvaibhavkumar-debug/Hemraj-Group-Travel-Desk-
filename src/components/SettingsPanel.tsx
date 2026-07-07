@@ -52,6 +52,7 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState("");
   const [emailInput, setEmailInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
   const [roleInput, setRoleInput] = useState<'TRAVEL_DESK' | 'TRAVEL_APPROVER' | 'VP_COMMERCIAL' | 'FINANCE' | 'SUPERADMIN'>('TRAVEL_DESK');
   const [isFormOpen, setIsFormOpen] = useState(false);
   
@@ -326,6 +327,12 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
       return;
     }
 
+    if (!editingUserId && !passwordInput.trim()) {
+      setInlineError("A custom login password is required to register new users.");
+      setSubmittingUser(false);
+      return;
+    }
+
     try {
       const url = editingUserId ? `/api/rbac/users/${editingUserId}` : "/api/rbac/users";
       const method = editingUserId ? "PUT" : "POST";
@@ -333,7 +340,12 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: nameInput, email: emailInput, role: roleInput })
+        body: JSON.stringify({ 
+          name: nameInput, 
+          email: emailInput, 
+          role: roleInput,
+          password: passwordInput.trim() || undefined
+        })
       });
 
       const data = await res.json();
@@ -346,6 +358,7 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
       // Reset Form states
       setNameInput("");
       setEmailInput("");
+      setPasswordInput("");
       setRoleInput("TRAVEL_DESK");
       setEditingUserId(null);
       setIsFormOpen(false);
@@ -365,6 +378,7 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
     setEditingUserId(user.id);
     setNameInput(user.name);
     setEmailInput(user.email);
+    setPasswordInput("");
     setRoleInput(user.role);
     setIsFormOpen(true);
     setInlineError("");
@@ -401,6 +415,7 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
     setEditingUserId(null);
     setNameInput("");
     setEmailInput("");
+    setPasswordInput("");
     setRoleInput("TRAVEL_DESK");
     setIsFormOpen(true);
     setInlineError("");
@@ -646,6 +661,20 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
                       <option value="FINANCE">Finance Auditor</option>
                       <option value="SUPERADMIN">Super Administrator (Super)</option>
                     </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                      {editingUserId ? "Login Password (Leave blank to keep unchanged)" : "Login Password *"}
+                    </label>
+                    <input
+                      type="password"
+                      required={!editingUserId}
+                      placeholder={editingUserId ? "••••••••" : "e.g. SecretPassword123"}
+                      value={passwordInput}
+                      onChange={e => setPasswordInput(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2 font-mono font-bold"
+                    />
                   </div>
                 </div>
 

@@ -351,7 +351,8 @@ export default function IndentForm({ employees, onSubmit, onCancel }: IndentForm
             body: JSON.stringify({
               fileName: file.name,
               fileType: file.type,
-              fileData: base64Data
+              fileData: base64Data,
+              documentCategory: fieldName
             })
           });
 

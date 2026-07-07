@@ -124,7 +124,8 @@ export default function PassportValidityDashboard({
           body: JSON.stringify({
             fileName: file.name,
             fileType: file.type,
-            fileData: base64Data
+            fileData: base64Data,
+            documentCategory: fieldName === "front" ? "passport_front_page" : "passport_back_page"
           })
         });
         const data = await res.json();

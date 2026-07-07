@@ -123,6 +123,8 @@ model TravelIndent {
   // Relations
   employee               Employee       @relation(fields: [employee_code], references: [employee_code], onDelete: Cascade)
   jobCard                JobCard?
+
+  @@index([employee_code])
 }
 
 model JobCard {
@@ -219,6 +221,8 @@ model JobCard {
   indent                      TravelIndent   @relation(fields: [indentId], references: [id], onDelete: Cascade)
   quotes                      JobCardQuote[]
   auditLogs                   AuditLog[]
+
+  @@index([indentId])
 }
 
 model JobCardQuote {
@@ -241,6 +245,8 @@ model JobCardQuote {
 
   // Relations
   jobCard        JobCard   @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+
+  @@index([jobCardId])
 }
 
 model AuditLog {
@@ -253,6 +259,8 @@ model AuditLog {
 
   // Relations
   jobCard    JobCard  @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+
+  @@index([jobCardId])
 }
 
 model RbacUser {
@@ -281,4 +289,21 @@ model Vendor {
   emails     Json     // Array of string emails
   phones     Json     // Array of string phones
   categories Json     // Array of category strings (FLIGHT, TRAIN, etc.)
+}
+
+model Session {
+  id        String   @id
+  email     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([email])
+}
+
+model ScanJob {
+  id        String   @id
+  fileType  String
+  status    String   // PENDING, COMPLETED, FAILED
+  result    Json?
+  error     String?
+  createdAt DateTime @default(now())
 }

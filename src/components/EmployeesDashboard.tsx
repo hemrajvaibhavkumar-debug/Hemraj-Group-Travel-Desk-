@@ -97,7 +97,8 @@ export default function EmployeesDashboard({
           body: JSON.stringify({
             fileName: file.name,
             fileType: file.type,
-            fileData: reader.result
+            fileData: reader.result,
+            documentCategory: fieldName
           })
         });
         const data = await res.json();

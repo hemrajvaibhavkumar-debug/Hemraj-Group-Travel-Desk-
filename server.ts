@@ -23,8 +23,6 @@ function verifyPassword(password: string, storedHash: string): boolean {
   return testHash === hash;
 }
 
-const SESSIONS = new Map<string, { email: string; expires: number }>();
-
 function parseCookies(cookieHeader?: string): Record<string, string> {
   const list: Record<string, string> = {};
   if (!cookieHeader) return list;
@@ -44,9 +42,13 @@ function requireAuth(permission?: string) {
         return res.status(401).json({ error: "Access Denied: Session token missing." });
       }
       
-      const session = SESSIONS.get(token);
-      if (!session || session.expires < Date.now()) {
-        if (session) SESSIONS.delete(token);
+      const session = await prisma.session.findUnique({
+        where: { id: token }
+      });
+      if (!session || session.expiresAt.getTime() < Date.now()) {
+        if (session) {
+          await prisma.session.delete({ where: { id: token } }).catch(() => {});
+        }
         return res.status(401).json({ error: "Access Denied: Invalid or expired session." });
       }
       
@@ -497,9 +499,12 @@ app.post("/api/auth/login", async (req, res) => {
 
     // Generate Session Token
     const token = crypto.randomBytes(32).toString("hex");
-    SESSIONS.set(token, {
-      email: user.email,
-      expires: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+    await prisma.session.create({
+      data: {
+        id: token,
+        email: user.email,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+      }
     });
 
     // Set HttpOnly Cookie
@@ -525,12 +530,14 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 // AUTH: Logout
-app.post("/api/auth/logout", (req, res) => {
-  const cookies = parseCookies(req.headers.cookie);
-  const token = cookies["session_token"];
-  if (token) {
-    SESSIONS.delete(token);
-  }
+app.post("/api/auth/logout", async (req, res) => {
+  try {
+    const cookies = parseCookies(req.headers.cookie);
+    const token = cookies["session_token"];
+    if (token) {
+      await prisma.session.delete({ where: { id: token } }).catch(() => {});
+    }
+  } catch (err) {}
   res.setHeader("Set-Cookie", "session_token=; Path=/; HttpOnly; Max-Age=0");
   return res.json({ success: true });
 });
@@ -544,9 +551,13 @@ app.get("/api/auth/me", async (req, res) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
 
-    const session = SESSIONS.get(token);
-    if (!session || session.expires < Date.now()) {
-      if (session) SESSIONS.delete(token);
+    const session = await prisma.session.findUnique({
+      where: { id: token }
+    });
+    if (!session || session.expiresAt.getTime() < Date.now()) {
+      if (session) {
+        await prisma.session.delete({ where: { id: token } }).catch(() => {});
+      }
       res.setHeader("Set-Cookie", "session_token=; Path=/; HttpOnly; Max-Age=0");
       return res.status(401).json({ error: "Session expired or invalid" });
     }
@@ -633,10 +644,11 @@ app.get("/api/rbac", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
 // RBAC Create User
 app.post("/api/rbac/users", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
   try {
-    const { name, email, role } = req.body;
+    const { name, email, role, password } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: "User Name is a required field." });
     if (!email || !email.trim()) return res.status(400).json({ error: "Email Address is a required field." });
     if (!role) return res.status(400).json({ error: "Role configuration is required." });
+    if (!password || !password.trim()) return res.status(400).json({ error: "Login Password is required to create a new user." });
 
     const exists = await prisma.rbacUser.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (exists) {
@@ -649,7 +661,7 @@ app.post("/api/rbac/users", requireAuth("MANAGE_SETTINGS"), async (req, res) => 
         name: name.trim(),
         email: email.trim().toLowerCase(),
         role: role,
-        passwordHash: hashPassword("Password123")
+        passwordHash: hashPassword(password.trim())
       }
     });
     return res.status(201).json({ success: true, user: newUser });
@@ -662,7 +674,7 @@ app.post("/api/rbac/users", requireAuth("MANAGE_SETTINGS"), async (req, res) => 
 app.put("/api/rbac/users/:id", requireAuth("MANAGE_SETTINGS"), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, role } = req.body;
+    const { name, email, role, password } = req.body;
 
     const current = await prisma.rbacUser.findUnique({ where: { id } });
     if (!current) return res.status(404).json({ error: "User record not found." });
@@ -677,7 +689,8 @@ app.put("/api/rbac/users/:id", requireAuth("MANAGE_SETTINGS"), async (req, res) 
       data: {
         name: name ? name.trim() : undefined,
         email: email ? email.trim().toLowerCase() : undefined,
-        role: role ? role : undefined
+        role: role ? role : undefined,
+        passwordHash: password && password.trim() ? hashPassword(password.trim()) : undefined
       }
     });
 
@@ -758,7 +771,7 @@ app.put("/api/rbac/settings", requireAuth("MANAGE_SETTINGS"), async (req, res) =
 // File upload handler - forwards to n8n if configured
 app.post("/api/upload", requireAuth("VIEW_INDENTS"), async (req, res) => {
   try {
-    const { fileName, fileData, fileType } = req.body;
+    const { fileName, fileData, fileType, documentCategory } = req.body;
     if (!fileName || !fileData) {
       return res.status(400).json({ error: "Missing required upload parameters (fileName, fileData)." });
     }
@@ -769,14 +782,17 @@ app.post("/api/upload", requireAuth("VIEW_INDENTS"), async (req, res) => {
     const uploadWebhook = process.env.N8N_UPLOAD_WEBHOOK_URL;
     if (uploadWebhook && uploadWebhook.trim()) {
       try {
-        console.log("Routing file upload to n8n webhook:", fileName);
+        console.log(`Routing file upload of kind "${documentCategory || "general"}" to n8n webhook:`, fileName);
         const response = await fetch(uploadWebhook, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             fileName,
             fileData, // base64 encoded
-            fileType,
+            fileType, // raw fileType from upload
+            mimeType: fileType || "application/octet-stream", // explicit mimeType parameter
+            documentCategory: documentCategory || "general_document", // what kind of doc is that
+            docKind: documentCategory || "general_document", // alias
             uploadedAt: new Date().toISOString()
           })
         });
@@ -958,10 +974,14 @@ app.delete("/api/employees/:employee_code", requireAuth("MANAGE_EMPLOYEES"), asy
 });
 
 // GET Indents
-app.get("/api/indents", requireAuth("VIEW_INDENTS"), async (req, res) => {
+app.get("/api/indents", requireAuth("VIEW_INDENTS"), async (req: any, res: any) => {
   try {
+    const limit = parseInt(req.query.limit as string) || 1000;
+    const skip = parseInt(req.query.skip as string) || 0;
     const indents = await prisma.travelIndent.findMany({
-      orderBy: { created_at: "desc" }
+      orderBy: { created_at: "desc" },
+      take: limit,
+      skip: skip
     });
     return res.json(indents);
   } catch (error: any) {
@@ -1076,14 +1096,18 @@ app.delete("/api/indents/:id", requireAuth("CREATE_INDENT"), async (req, res) =>
 });
 
 // GET Job Cards
-app.get("/api/job-cards", requireAuth("VIEW_INDENTS"), async (req, res) => {
+app.get("/api/job-cards", requireAuth("VIEW_INDENTS"), async (req: any, res: any) => {
   try {
+    const limit = parseInt(req.query.limit as string) || 1000;
+    const skip = parseInt(req.query.skip as string) || 0;
     const jobCards = await prisma.jobCard.findMany({
       include: {
         quotes: true,
         auditLogs: true
       },
-      orderBy: { created_at: "desc" }
+      orderBy: { created_at: "desc" },
+      take: limit,
+      skip: skip
     });
     return res.json(jobCards);
   } catch (error: any) {
@@ -1453,13 +1477,112 @@ function getSimulatedData(fileType: string) {
   }
 }
 
-// POST Document scan via Gemini LLM OCR
+async function executeScanJobInBackground(jobId: string, fileType: string, cleanMimeType: string, cleanedData: string, prompt: string, fileName: string) {
+  try {
+    const openRouterKey = (process.env.OPENROUTER_API_KEY || "").trim();
+    let scannedData: any = null;
+
+    if (openRouterKey) {
+      const dataUrl = `data:${cleanMimeType};base64,${cleanedData}`;
+      const payload = {
+        model: "google/gemini-2.5-flash",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: dataUrl } }
+            ]
+          }
+        ]
+      };
+
+      const response = await retryWithBackoff(async () => {
+        const resObj = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openRouterKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:3000",
+            "X-Title": "Hemraj Personal Travel Desk"
+          },
+          body: JSON.stringify(payload)
+        });
+        if (resObj.status === 429) {
+          const err = new Error("Rate limited") as any;
+          err.status = 429;
+          throw err;
+        }
+        return resObj;
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenRouter API failed with status ${response.status}: ${errorText}`);
+      }
+
+      const responseData = await response.json();
+      const rawText = responseData.choices?.[0]?.message?.content || "{}";
+      const cleanedText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+      scannedData = JSON.parse(cleanedText);
+    } else if (process.env.GEMINI_API_KEY) {
+      const imagePart = {
+        inlineData: {
+          mimeType: cleanMimeType,
+          data: cleanedData
+        }
+      };
+      const textPart = { text: prompt };
+
+      const response = await retryWithBackoff(() => ai.models.generateContent({
+        model: "gemini-2.0-flash",
+        contents: { parts: [imagePart, textPart] },
+      }));
+
+      const rawText = response.text || "{}";
+      const cleanedText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+      scannedData = JSON.parse(cleanedText);
+    } else {
+      scannedData = getSimulatedData(fileType);
+    }
+
+    await prisma.scanJob.update({
+      where: { id: jobId },
+      data: {
+        status: "COMPLETED",
+        result: JSON.parse(JSON.stringify(scannedData))
+      }
+    });
+  } catch (error: any) {
+    console.error(`Scan job ${jobId} background processing failed:`, error.message);
+    const scannedData = getSimulatedData(fileType);
+    await prisma.scanJob.update({
+      where: { id: jobId },
+      data: {
+        status: "COMPLETED", // Completed with fallback data to prevent blocker
+        result: JSON.parse(JSON.stringify(scannedData)),
+        error: error.message
+      }
+    });
+  }
+}
+
+// POST Document scan via Gemini LLM OCR (Async)
 app.post("/api/job-cards/scan", requireAuth("VIEW_INDENTS"), async (req, res) => {
   try {
     const { fileType, fileData, mimeType, fileName } = req.body;
     if (!fileType || !fileData) {
       return res.status(400).json({ error: "Required scanner body attributes (fileType and fileData in Base64) are missing." });
     }
+
+    const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    await prisma.scanJob.create({
+      data: {
+        id: jobId,
+        fileType,
+        status: "PENDING"
+      }
+    });
 
     const cleanMimeType = mimeType || "image/png";
     const cleanedData = fileData.replace(/^data:.*?;base64,/, "");
@@ -1515,117 +1638,31 @@ app.post("/api/job-cards/scan", requireAuth("VIEW_INDENTS"), async (req, res) =>
        }
        Make sure totalBillAmount is a clean floating point value. Return ONLY raw valid JSON structures.`;
 
-    const openRouterKey = (process.env.OPENROUTER_API_KEY || "").trim();
+    // Start background processing without blocking event loop
+    executeScanJobInBackground(jobId, fileType, cleanMimeType, cleanedData, prompt, fileName);
 
-    if (openRouterKey) {
-      try {
-        const dataUrl = `data:${cleanMimeType};base64,${cleanedData}`;
-        const payload = {
-          model: "google/gemini-2.5-flash",
-          messages: [
-            {
-              role: "user",
-              content: [
-                { type: "text", text: prompt },
-                { type: "image_url", image_url: { url: dataUrl } }
-              ]
-            }
-          ]
-        };
-
-        const response = await retryWithBackoff(async () => {
-          const resObj = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${openRouterKey}`,
-              "Content-Type": "application/json",
-              "HTTP-Referer": "http://localhost:3000",
-              "X-Title": "Hemraj Personal Travel Desk"
-            },
-            body: JSON.stringify(payload)
-          });
-          if (resObj.status === 429) {
-            const err = new Error("Rate limited") as any;
-            err.status = 429;
-            throw err;
-          }
-          return resObj;
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`OpenRouter API failed with status ${response.status}: ${errorText}`);
-        }
-
-        const responseData = await response.json();
-        const rawText = responseData.choices?.[0]?.message?.content || "{}";
-        const cleanedText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
-        const scannedData = JSON.parse(cleanedText);
-
-        return res.json({
-          success: true,
-          scannedData,
-          fileName,
-          method: "OpenRouter Gemini Flash Real-Time Parse"
-        });
-      } catch (openRouterError: any) {
-        console.error("OpenRouter Scan parser execution error:", openRouterError.message);
-        const scannedData = getSimulatedData(fileType);
-        return res.json({
-          success: true,
-          scannedData,
-          fileName,
-          method: "Heuristic Fallback OCR (Local)",
-          log: openRouterError.message
-        });
-      }
-    } else if (process.env.GEMINI_API_KEY) {
-      try {
-        const imagePart = {
-          inlineData: {
-            mimeType: cleanMimeType,
-            data: cleanedData
-          }
-        };
-        const textPart = { text: prompt };
-
-        const response = await retryWithBackoff(() => ai.models.generateContent({
-          model: "gemini-2.0-flash",
-          contents: { parts: [imagePart, textPart] },
-        }));
-
-        const rawText = response.text || "{}";
-        const cleanedText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
-        const scannedData = JSON.parse(cleanedText);
-
-        return res.json({
-          success: true,
-          scannedData,
-          fileName,
-          method: "Gemini Real-Time Cognitive Parse"
-        });
-      } catch (geminiError: any) {
-        console.error("Gemini Scan parser execution error:", geminiError.message);
-        const scannedData = getSimulatedData(fileType);
-        return res.json({
-          success: true,
-          scannedData,
-          fileName,
-          method: "Heuristic Fallback OCR (Local)",
-          log: geminiError.message
-        });
-      }
-    } else {
-      const scannedData = getSimulatedData(fileType);
-      return res.json({
-        success: true,
-        scannedData,
-        fileName,
-        method: "Mock OCR Engine (No API Key)"
-      });
-    }
+    return res.json({
+      success: true,
+      jobId
+    });
   } catch (error: any) {
     return res.status(500).json({ error: "Document AI Scan exception: " + error.message });
+  }
+});
+
+// GET Async Scan Job Status
+app.get("/api/job-cards/scan/status/:id", requireAuth("VIEW_INDENTS"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const job = await prisma.scanJob.findUnique({
+      where: { id }
+    });
+    if (!job) {
+      return res.status(404).json({ error: `Scan job ${id} was not found.` });
+    }
+    return res.json(job);
+  } catch (error: any) {
+    return res.status(500).json({ error: "Failed to check scan job status: " + error.message });
   }
 });
 

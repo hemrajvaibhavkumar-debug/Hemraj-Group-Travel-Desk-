@@ -4,7 +4,7 @@ import EmployeeProfileModal from "./EmployeeProfileModal";
 import { 
   Building2, Briefcase, Database, Users, HelpCircle, 
   MapPin, ShieldAlert, CheckCircle2, RefreshCw,
-  ChevronLeft, ChevronRight, Compass, ArrowUpRight, Clock, Plus, 
+  ChevronLeft, ChevronRight, Compass, ArrowUpRight, Clock, Plus, LayoutDashboard,
   Trash2, Edit3, Send, FileText, CheckCircle, Sparkles, 
   AlertTriangle, Upload, Eye, EyeOff, Clipboard, Play, 
   FileCheck, ShieldCheck, ArrowRight, UserCheck, DollarSign,
@@ -109,6 +109,7 @@ export default function JobCardManager({
   const [filterSlaStatus, setFilterSlaStatus] = useState<string>("ALL");
   const [filterVendor, setFilterVendor] = useState<string>("ALL");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showFilterSection, setShowFilterSection] = useState(false);
 
   // Convert any currency to INR dynamically using live forex rates
   const convertToINR = (val: number, cur: string) => {
@@ -1476,6 +1477,36 @@ export default function JobCardManager({
     return sortedQuotes.slice(0, 3).map(q => q.id);
   }, [sortedQuotes]);
 
+  const pollScanJob = async (jobId: string): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      let attempts = 0;
+      const interval = setInterval(async () => {
+        try {
+          attempts++;
+          if (attempts > 30) {
+            clearInterval(interval);
+            reject(new Error("Document analysis request timed out. Please try again."));
+            return;
+          }
+          const res = await fetch(`/api/job-cards/scan/status/${jobId}`);
+          if (!res.ok) {
+            throw new Error(`Polling status failed with HTTP ${res.status}`);
+          }
+          const job = await res.json();
+          if (job.status === "COMPLETED") {
+            clearInterval(interval);
+            resolve(job);
+          } else if (job.status === "FAILED") {
+            clearInterval(interval);
+            reject(new Error(job.error || "OCR Scan failed."));
+          }
+        } catch (err) {
+          // Keep polling
+        }
+      }, 1000);
+    });
+  };
+
   // 8. OCR Scanner with Gemini API
   const handleScanDocument = async (fileType: 'ticket' | 'invoice') => {
     const fileData = fileType === 'ticket' ? ticketFileBase64 : invoiceFileBase64;
@@ -1489,7 +1520,7 @@ export default function JobCardManager({
     if (fileType === 'ticket') setScanningTicket(true);
     else setScanningInvoice(true);
 
-    setBookingMessage("Uploading file bytes and parsing with Gemini 3.5 Cognitive Engine...");
+    setBookingMessage("Queuing scan job on server...");
     setScanMethod("");
 
     try {
@@ -1504,13 +1535,16 @@ export default function JobCardManager({
         })
       });
 
-      const result = await res.json();
+      const startResult = await res.json();
       if (!res.ok) {
-        throw new Error(result.error || "Failing scan operations.");
+        throw new Error(startResult.error || "Failing scan operations.");
       }
 
-      const info = result.scannedData;
-      setScanMethod(result.method || "Gemini Search");
+      setBookingMessage("Running OCR analysis and layout validation on database queue...");
+      const finalJob = await pollScanJob(startResult.jobId);
+      const info = finalJob.result;
+      
+      setScanMethod(finalJob.error ? "Heuristic Fallback OCR (Local)" : "Gemini Real-Time Cognitive Parse");
 
       if (fileType === 'ticket') {
         setPnr(info.pnr || "TKT" + Math.floor(100+Math.random()*900));
@@ -1525,7 +1559,7 @@ export default function JobCardManager({
         triggerSuccess("Success: Gemini verified vendor physical invoice metrics.");
       }
 
-      setBookingMessage(`Scan Complete! Method: ${result.method}`);
+      setBookingMessage(`Scan Complete!`);
     } catch (err: any) {
       triggerError(`Scan process error: ${err.message}`);
       setBookingMessage("");
@@ -1794,7 +1828,7 @@ export default function JobCardManager({
     }
 
     setScanningGstInvoice(true);
-    setBookingMessage("Uploading Service / Airline GST Invoice and extracting using Gemini 3.5 Flash...");
+    setBookingMessage("Queuing GST invoice scan job on server...");
     setScanMethod("");
     
     try {
@@ -1809,13 +1843,16 @@ export default function JobCardManager({
         })
       });
 
-      const result = await res.json();
+      const startResult = await res.json();
       if (!res.ok) {
-        throw new Error(result.error || "Failing scan operations.");
+        throw new Error(startResult.error || "Failing scan operations.");
       }
 
-      const info = result.scannedData;
-      setScanMethod(result.method || "Gemini AI Search");
+      setBookingMessage("Running OCR analysis and layout validation on database queue...");
+      const finalJob = await pollScanJob(startResult.jobId);
+      const info = finalJob.result;
+      
+      setScanMethod(finalJob.error ? "Heuristic Fallback OCR (Local)" : "Gemini Real-Time Cognitive Parse");
 
       // Set the extracted information
       setAirlineGstVendorName(info.vendorName || "IndiGo Airlines");
@@ -1828,7 +1865,7 @@ export default function JobCardManager({
       setPhysicalInvoiceHandedOver(true);
 
       triggerSuccess("Success: Gemini scanned corporate airline GST invoice files successfully.");
-      setBookingMessage(`Scan Complete! Method: ${result.method}`);
+      setBookingMessage(`Scan Complete!`);
     } catch (err: any) {
       triggerError(`Scan process error: ${err.message}`);
       setBookingMessage("");
@@ -2354,7 +2391,25 @@ export default function JobCardManager({
 
       {/* Sourcing and Settle Filter Panel Cockpit */}
       <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4 text-left">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <button
+          type="button"
+          onClick={() => setShowFilterSection(!showFilterSection)}
+          className="w-full flex items-center justify-between text-left cursor-pointer focus:outline-none"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-base">🔍</span>
+            <span className="text-xs font-black uppercase tracking-widest text-slate-805">
+              Filter Cockpit & Search
+            </span>
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-xl transition duration-150">
+            {showFilterSection ? "Collapse [-]" : "Expand [+]"}
+          </span>
+        </button>
+
+        {showFilterSection && (
+          <div className="space-y-4 pt-3 border-t border-slate-100">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex-1 relative">
             <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
               <Compass className="w-4 h-4 animate-spin-slow" />
@@ -2486,6 +2541,8 @@ export default function JobCardManager({
             </motion.div>
           )}
         </AnimatePresence>
+          </div>
+        )}
       </div>
 
 
@@ -3028,76 +3085,26 @@ export default function JobCardManager({
                   );
                 })()}
 
-                {/* INTERACTIVE WORKSPACE VIEW SECTIONS CONTROL */}
-                <div className="bg-slate-50/85 backdrop-blur-md border border-slate-200/80 px-6 py-3.5 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-5 justify-between my-6 sticky top-0 z-20 shadow-2xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {([
-                      { stage: 'OVERVIEW', title: 'Summary' },
-                      { stage: 'QUOTATION', title: '1. Bids' },
-                      { stage: 'APPROVAL', title: '2. Approval' },
-                      { stage: 'BOOKING', title: '3. Booking' },
-                      { stage: 'VENDOR_INVOICE', title: '4. Vendor Invoice' },
-                      { stage: 'FINANCE', title: '5. Finance' },
-                      { stage: 'RECONCILIATION', title: '6. Audit' },
-                      { stage: 'CLOSED', title: '7. Final' }
-                    ] as const).map(step => {
-                      const isActive = activeViewSection === step.stage;
-                      const cardStageOrder = ['QUOTATION', 'APPROVAL', 'BOOKING', 'FINANCE', 'RECONCILIATION', 'CLOSED'];
-                      
-                      let isComplete = false;
-                      let isCurrentActionStage = false;
-                      
-                      if (step.stage === 'VENDOR_INVOICE') {
-                        isComplete = cardStageOrder.indexOf(selectedCard.stage) > cardStageOrder.indexOf('BOOKING');
-                        isCurrentActionStage = selectedCard.stage === 'BOOKING' && !!selectedCard.bookingPNR && !selectedCard.ticketVendorInvoiceUrl;
-                      } else if (step.stage === 'BOOKING') {
-                        isComplete = cardStageOrder.indexOf(selectedCard.stage) > cardStageOrder.indexOf('BOOKING') || (selectedCard.stage === 'BOOKING' && !!selectedCard.bookingPNR);
-                        isCurrentActionStage = selectedCard.stage === 'BOOKING' && !selectedCard.bookingPNR;
-                      } else {
-                        isComplete = step.stage !== 'OVERVIEW' && cardStageOrder.indexOf(selectedCard.stage) > cardStageOrder.indexOf(step.stage as JobCardStage);
-                        isCurrentActionStage = selectedCard.stage === step.stage;
-                      }
-
-                      return (
+                      {/* ACCORDION 1: SUMMARY OVERVIEW */}
+                      <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
                         <button
-                          key={step.stage}
-                          onClick={() => setActiveViewSection(step.stage as any)}
                           type="button"
-                          className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-200 border flex items-center gap-2 ${
-                            isActive
-                              ? "bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/10 -translate-y-0.5"
-                              : isCurrentActionStage
-                              ? "bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100"
-                              : isComplete
-                              ? "bg-white text-emerald-600 border-emerald-100 hover:bg-emerald-50"
-                              : "bg-white text-slate-400 border-slate-100 hover:text-slate-600 hover:bg-slate-50"
+                          onClick={() => setActiveViewSection(activeViewSection === 'OVERVIEW' ? null : 'OVERVIEW')}
+                          className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
+                            activeViewSection === 'OVERVIEW' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
                           }`}
                         >
-                          {isComplete ? (
-                            <CheckCircle2 className="w-3 h-3 shrink-0" />
-                          ) : isCurrentActionStage ? (
-                            <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse shrink-0" />
-                          ) : null}
-                          <span>{step.title}</span>
+                          <div className="flex items-center gap-2">
+                            <LayoutDashboard className="w-4 h-4 text-orange-500" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Summary Overview</span>
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                            {activeViewSection === 'OVERVIEW' ? "Collapse [-]" : "Expand [+]"}
+                          </span>
                         </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-
-
-                {/* MAIN ACTIVE DRAWERS WORKSPACE */}
-                {(() => {
-                  const isWorkspaceStep = ['APPROVAL', 'BOOKING', 'VENDOR_INVOICE', 'FINANCE'].includes(activeViewSection || '');
-                  const localIndent = indents ? indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId) : null;
-                  
-                  return (
-                    <div className="py-6">
-                      <div className="space-y-8">
-                        <div className="space-y-8 text-left">
-                  {activeViewSection === 'OVERVIEW' && (
-                    <div className="space-y-6">
+                        
+                        {activeViewSection === 'OVERVIEW' && (
+                          <div className="p-6 border-t border-slate-100 bg-white space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="bg-slate-50/50 border border-slate-200 p-5 rounded-2xl hover:bg-white transition-all duration-200">
                           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Traveler</p>
@@ -3210,13 +3217,10 @@ export default function JobCardManager({
                           </div>
                         );
                       })()}
-                    </div>
-                  )}
-
 
                   
                   {/* COMPLETED/PASSED STAGES VISIBILITY SECTION */}
-                  {activeViewSection === 'OVERVIEW' && selectedCard.stage !== 'QUOTATION' && (
+                  {selectedCard.stage !== 'QUOTATION' && (
                     <div className="bg-slate-50/50 border border-slate-200 rounded-2xl p-6 space-y-4">
                       <div 
                         className="flex flex-col sm:flex-row sm:items-center justify-between cursor-pointer gap-4" 
@@ -3295,7 +3299,7 @@ export default function JobCardManager({
                   )}
 
                   {/* WARNING VARIANCES */}
-                  {activeViewSection === 'OVERVIEW' && selectedCard.varianceWarning && (
+                  {selectedCard.varianceWarning && (
                     <div className="bg-orange-50 border-2 border-orange-200 p-4 rounded-2xl flex items-start gap-3.5 animate-bounce">
                       <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
                       <div>
@@ -3305,9 +3309,49 @@ export default function JobCardManager({
                     </div>
                   )}
 
-                  {/* STEP 1 WORKSPACE: QUOTATION */}
-                  {activeViewSection === 'QUOTATION' && (
-                    <div className="space-y-6">
+                  {/* LOGS AUDITING CHRONOLOGY */}
+                  <div className="border-t-2 border-slate-100 pt-8 space-y-5">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-orange-500" />
+                      Chronological Audit log & timeline
+                    </h4>
+                    
+                    <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
+                      {selectedCard.auditLogs && selectedCard.auditLogs.map((log, lIdx) => (
+                        <div key={lIdx} className="p-3 bg-slate-50 border border-slate-150 rounded-xl text-[10px] block leading-relaxed font-bold">
+                          <div className="flex justify-between items-center text-slate-400 font-black text-[9px] mb-1">
+                            <span>BY: {log.userId} — ACTION: {log.action.toUpperCase()}</span>
+                            <span>{new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString()}</span>
+                          </div>
+                          <p className="text-slate-800">{log.notes || "No extra metadata captured."}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ACCORDION 2: STEP 1: BIDS & QUOTATIONS */}
+                      <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                        <button
+                          type="button"
+                          onClick={() => setActiveViewSection(activeViewSection === 'QUOTATION' ? null : 'QUOTATION')}
+                          className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
+                            activeViewSection === 'QUOTATION' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 1: Vendor Bids & Quotations</span>
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                            {activeViewSection === 'QUOTATION' ? "Collapse [-]" : "Expand [+]"}
+                          </span>
+                        </button>
+                        
+                        {activeViewSection === 'QUOTATION' && (
+                          <div className="p-6 border-t border-slate-100 bg-white space-y-6">
                       
                       {/* SUBSECTION B: REGISTER MANUAL QUOTATION */}
                       <div className="border-t border-slate-100 pt-6 space-y-4">
@@ -3655,12 +3699,29 @@ export default function JobCardManager({
                         </button>
                       </div>
 
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
 
-                  {/* STEP 2 WORKSPACE: APPROVAL */}
-                  {activeViewSection === 'APPROVAL' && (
-                    <div className="space-y-6">
+                  {/* ACCORDION 3: STEP 2: OPERATIONAL & VP APPROVALS */}
+                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setActiveViewSection(activeViewSection === 'APPROVAL' ? null : 'APPROVAL')}
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
+                        activeViewSection === 'APPROVAL' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 2: Operational & VP Approvals</span>
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                        {activeViewSection === 'APPROVAL' ? "Collapse [-]" : "Expand [+]"}
+                      </span>
+                    </button>
+                    
+                    {activeViewSection === 'APPROVAL' && (
+                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
                       
                       {/* MASTER COMPARATIVE EVALUATION MATRIX */}
                       {selectedCard.quotes && selectedCard.quotes.length > 0 && (
@@ -4160,12 +4221,29 @@ export default function JobCardManager({
                         ></textarea>
                       </div>
 
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
 
-                  {/* STEP 3 WORKSPACE: BOOKING */}
-                  {activeViewSection === 'BOOKING' && (
-                    <div className="space-y-6">
+                  {/* ACCORDION 4: STEP 3: TICKET BOOKING & PNR REGISTRY */}
+                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setActiveViewSection(activeViewSection === 'BOOKING' ? null : 'BOOKING')}
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
+                        activeViewSection === 'BOOKING' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 3: Ticket Booking & PNR Registry</span>
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                        {activeViewSection === 'BOOKING' ? "Collapse [-]" : "Expand [+]"}
+                      </span>
+                    </button>
+                    
+                    {activeViewSection === 'BOOKING' && (
+                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
                       
                       <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
                         <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
@@ -4304,12 +4382,29 @@ export default function JobCardManager({
 
                       </form>
 
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
 
-                  {/* STEP 3.5 WORKSPACE: VENDOR INVOICE */}
-                  {activeViewSection === 'VENDOR_INVOICE' && (
-                    <div className="space-y-6">
+                  {/* ACCORDION 5: STEP 4: VENDOR INVOICES & GST VALIDATION */}
+                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setActiveViewSection(activeViewSection === 'VENDOR_INVOICE' ? null : 'VENDOR_INVOICE')}
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
+                        activeViewSection === 'VENDOR_INVOICE' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 4: Vendor Invoices & GST validation</span>
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                        {activeViewSection === 'VENDOR_INVOICE' ? "Collapse [-]" : "Expand [+]"}
+                      </span>
+                    </button>
+                    
+                    {activeViewSection === 'VENDOR_INVOICE' && (
+                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
                       
                       <div className="p-4 bg-orange-50 border border-orange-200 text-orange-950 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
                         <FileText className="w-5 h-5 text-orange-600 shrink-0" />
@@ -4493,12 +4588,29 @@ export default function JobCardManager({
 
                       </form>
 
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
 
-                  {/* STEP 4 WORKSPACE: FINANCE APPROVAL */}
-                  {activeViewSection === 'FINANCE' && (
-                    <div className="space-y-6">
+                  {/* ACCORDION 6: STEP 5: FINANCE CLEARANCE & RELEASES */}
+                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setActiveViewSection(activeViewSection === 'FINANCE' ? null : 'FINANCE')}
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
+                        activeViewSection === 'FINANCE' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 5: Finance Clearance & Releases</span>
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                        {activeViewSection === 'FINANCE' ? "Collapse [-]" : "Expand [+]"}
+                      </span>
+                    </button>
+                    
+                    {activeViewSection === 'FINANCE' && (
+                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
                       
                       <div className="p-4 bg-orange-50 border border-orange-200 text-orange-950 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
                         <DollarSign className="w-5 h-5 text-orange-600 shrink-0 animate-pulse" />
@@ -4649,16 +4761,33 @@ export default function JobCardManager({
                         );
                       })()}
 
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
 
-                  {/* STEP 5 WORKSPACE: RECONCILIATION */}
-                  {activeViewSection === 'RECONCILIATION' && (() => {
-                    const localLinkedIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
-                    const isGstApplicable = localLinkedIndent ? localLinkedIndent.gst_applicable !== false : true;
+                  {/* ACCORDION 7: STEP 6: RECONCILIATION & AUDITING LOGS */}
+                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setActiveViewSection(activeViewSection === 'RECONCILIATION' ? null : 'RECONCILIATION')}
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
+                        activeViewSection === 'RECONCILIATION' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 6: Reconciliation & Auditing Logs</span>
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                        {activeViewSection === 'RECONCILIATION' ? "Collapse [-]" : "Expand [+]"}
+                      </span>
+                    </button>
+                    
+                    {activeViewSection === 'RECONCILIATION' && (() => {
+                      const localLinkedIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
+                      const isGstApplicable = localLinkedIndent ? localLinkedIndent.gst_applicable !== false : true;
 
-                    return (
-                      <div className="space-y-6">
+                      return (
+                        <div className="p-6 border-t border-slate-100 bg-white space-y-6">
                         
                         {/* COMPARE APPROVED VS FINAL FOR VARIANCE ALERT */}
                         {(() => {
@@ -4948,10 +5077,27 @@ export default function JobCardManager({
                       </div>
                     );
                   })()}
+                  </div>
 
-                  {/* STEP 5 WORKSPACE: CLOSED / COMPLETED */}
-                  {activeViewSection === 'CLOSED' && (
-                    <div className="space-y-6">
+                  {/* ACCORDION 8: STEP 7: FINAL RECONCILIATION (CLOSED) */}
+                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setActiveViewSection(activeViewSection === 'CLOSED' ? null : 'CLOSED')}
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
+                        activeViewSection === 'CLOSED' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 7: Final Reconciliation (Closed)</span>
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                        {activeViewSection === 'CLOSED' ? "Collapse [-]" : "Expand [+]"}
+                      </span>
+                    </button>
+                    
+                    {activeViewSection === 'CLOSED' && (
+                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
                       
                       <div className="p-8 bg-emerald-50 border-2 border-emerald-300 rounded-3xl text-center space-y-4">
                         <CheckCircle className="w-16 h-16 text-emerald-600 mx-auto" />
@@ -5002,36 +5148,9 @@ export default function JobCardManager({
                         </div>
                       )}
 
-                    </div>
-                  )}
-
-                  {/* LOGS AUDITING CHRONOLOGY (SHOW ONLY IN OVERVIEW) */}
-                  {activeViewSection === 'OVERVIEW' && (
-                    <div className="border-t-2 border-slate-100 pt-8 space-y-5">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                        <Activity className="w-4 h-4 text-orange-500" />
-                        Chronological Audit log & timeline
-                      </h4>
-                      
-                      <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
-                        {selectedCard.auditLogs && selectedCard.auditLogs.map((log, lIdx) => (
-                          <div key={lIdx} className="p-3 bg-slate-50 border border-slate-150 rounded-xl text-[10px] block leading-relaxed font-bold">
-                            <div className="flex justify-between items-center text-slate-400 font-black text-[9px] mb-1">
-                              <span>BY: {log.userId} — ACTION: {log.action.toUpperCase()}</span>
-                              <span>{new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString()}</span>
-                            </div>
-                            <p className="text-slate-800">{log.notes || "No extra metadata captured."}</p>
-                          </div>
-                        ))}
                       </div>
-                    </div>
-                  )}
-
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
+                    )}
+                  </div>
 
               </motion.div>
             )}

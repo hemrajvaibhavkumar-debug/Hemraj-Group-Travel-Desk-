@@ -28,10 +28,6 @@ export default function Login() {
     }
   };
 
-  const handleQuickLogin = (quickEmail: string) => {
-    setEmail(quickEmail);
-    setPassword("Password123");
-  };
 
   return (
     <div className="min-h-screen w-screen bg-slate-950 flex flex-col items-center justify-center p-6 relative overflow-hidden">
@@ -63,11 +59,11 @@ export default function Login() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-6 p-4 bg-rose-500/15 border border-rose-500/30 text-rose-350 rounded-2xl flex items-start gap-3"
+            className="mb-6 p-4 bg-rose-500/15 border border-rose-500/30 text-rose-200 rounded-2xl flex items-start gap-3"
           >
             <ShieldAlert className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
             <div className="text-xs font-bold uppercase tracking-wide leading-relaxed">
-              <span className="font-black text-rose-400 block mb-0.5">Authentication Error</span>
+              <span className="font-black text-rose-300 block mb-0.5">Authentication Error</span>
               {error}
             </div>
           </motion.div>
@@ -116,37 +112,6 @@ export default function Login() {
             {loading ? "Authenticating..." : "Sign In to Workspace"}
           </button>
         </form>
-
-        {/* Quick Login Developer Panel */}
-        <div className="mt-8 pt-6 border-t border-slate-800/80">
-          <div className="flex items-center gap-1.5 text-slate-500 mb-3.5">
-            <Sparkles className="w-3.5 h-3.5 text-orange-500" />
-            <span className="text-[9px] font-black uppercase tracking-widest">
-              Quick Switch simulated users (Dev-Mode)
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: "Travel Desk", email: "subham4343@gmail.com" },
-              { label: "L1 Approver", email: "rohit.coo@hemrajgroup.com" },
-              { label: "L2 Approver", email: "vp.commercial@hemrajgroup.com" },
-              { label: "Finance Team", email: "finance@hemrajgroup.com" }
-            ].map((account) => (
-              <button
-                key={account.email}
-                type="button"
-                onClick={() => handleQuickLogin(account.email)}
-                className="px-3 py-2 bg-slate-950/40 border border-slate-800 hover:border-slate-700 text-[9px] font-black uppercase tracking-wide text-slate-300 rounded-xl transition hover:bg-slate-900/60 text-left truncate flex flex-col gap-0.5 cursor-pointer"
-              >
-                <span>{account.label}</span>
-                <span className="text-[8px] text-slate-500 font-semibold truncate lowercase">
-                  {account.email}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
       </motion.div>
     </div>
   );
