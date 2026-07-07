@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from "react";
 import { TravelIndent, Employee, JobCard, RbacUser, RbacSettings, Vendor } from "./types";
 import { useAuth } from "./context/AuthContext";
 import Login from "./components/Login";
+import PublicIndentForm from "./components/PublicIndentForm";
 import { usePersistedState } from "./hooks/usePersistedState";
 import IndentConsole from "./components/IndentConsole";
 import IndentForm from "./components/IndentForm";
@@ -64,7 +65,7 @@ export default function App() {
     const view = parts[0];
     const id = parts[1] || null;
 
-    const validViews = ["dashboard", "indents", "create", "jobcards", "passports", "settings", "employees", "flight-search"] as const;
+    const validViews = ["dashboard", "indents", "create", "jobcards", "passports", "settings", "employees", "flight-search", "raise-indent"] as const;
     if (validViews.includes(view as any)) {
       return { view: view as typeof validViews[number], id };
     }
@@ -463,6 +464,10 @@ export default function App() {
         <p className="text-slate-400 font-black text-xs uppercase tracking-widest font-sans">Validating secure session...</p>
       </div>
     );
+  }
+
+  if (currentView === "raise-indent") {
+    return <PublicIndentForm />;
   }
 
   if (!isAuthenticated) {

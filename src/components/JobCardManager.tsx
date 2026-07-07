@@ -9,11 +9,12 @@ import {
   AlertTriangle, Upload, Eye, EyeOff, Clipboard, Play, 
   FileCheck, ShieldCheck, ArrowRight, UserCheck, DollarSign,
   Paperclip, Download,
-  Coins, Activity, List, Kanban, AlertCircle
+  Coins, Activity, List, Kanban, AlertCircle, X
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { usePersistedState } from "../hooks/usePersistedState";
 import { useAuth } from "../context/AuthContext";
+import { useTravelStore } from "../store/useTravelStore";
 
 interface JobCardManagerProps {
   indents: TravelIndent[];
@@ -56,9 +57,21 @@ export default function JobCardManager({
   const [jobCards, setJobCards] = useState<JobCard[]>(initialJobCards);
   const [selectedCard, setSelectedCard] = useState<JobCard | null>(null);
   const [profileEmployee, setProfileEmployee] = useState<Employee | null>(null);
-  const [isLeftListCollapsed, setIsLeftListCollapsed] = useState(false);
-  
-  const [activeViewSection, setActiveViewSection] = useState<JobCardStage | 'OVERVIEW' | 'VENDOR_INVOICE' | null>(null);
+
+  const {
+    isLeftListCollapsed, setIsLeftListCollapsed,
+    activeViewSection, setActiveViewSection,
+    filterSearch, setFilterSearch,
+    filterCategory, setFilterCategory,
+    filterPriority, setFilterPriority,
+    filterPaymentStatus, setFilterPaymentStatus,
+    filterSlaStatus, setFilterSlaStatus,
+    filterVendor, setFilterVendor,
+    showAdvancedFilters, setShowAdvancedFilters,
+    showFilterSection, setShowFilterSection,
+    showPassedQuotes, setShowPassedQuotes,
+    selectedCards, toggleSelectCard, setSelectedCards
+  } = useTravelStore();
 
   // Track the previous selectedCardId so we can distinguish a genuine card navigation
   // (user clicked a different card) from a same-card data update (applyOptimisticUpdate).
@@ -101,15 +114,7 @@ export default function JobCardManager({
     }
   };
   
-  // Advanced Filter states
-  const [filterSearch, setFilterSearch] = useState("");
-  const [filterCategory, setFilterCategory] = useState<string>("ALL");
-  const [filterPriority, setFilterPriority] = useState<string>("ALL");
-  const [filterPaymentStatus, setFilterPaymentStatus] = useState<string>("ALL");
-  const [filterSlaStatus, setFilterSlaStatus] = useState<string>("ALL");
-  const [filterVendor, setFilterVendor] = useState<string>("ALL");
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [showFilterSection, setShowFilterSection] = useState(false);
+
 
   // Convert any currency to INR dynamically using live forex rates
   const convertToINR = (val: number, cur: string) => {
@@ -249,6 +254,188 @@ export default function JobCardManager({
     return Array.from(new Set([...dbNames, ...staticList]));
   }, [vendorsList]);
   
+  // Add vendor from Job Card popup states
+  const [showAddVendorModal, setShowAddVendorModal] = useState(false);
+  const [newVName, setNewVName] = useState("");
+  const [newVEmails, setNewVEmails] = useState("");
+  const [newVPhones, setNewVPhones] = useState("");
+  const [newVCategories, setNewVCategories] = useState<string[]>([]);
+  const [addingVendorLoading, setAddingVendorLoading] = useState(false);
+  const [newVError, setNewVError] = useState("");
+
+  const handleAddVendorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newVName.trim()) {
+      setNewVError("Vendor Name is required.");
+      return;
+    }
+    const emailList = newVEmails.split(',').map(email => email.trim()).filter(email => email !== '');
+    if (emailList.length === 0) {
+      setNewVError("Provide at least one Vendor Email.");
+      return;
+    }
+
+    setAddingVendorLoading(true);
+    setNewVError("");
+
+    try {
+      const res = await fetch("/api/vendors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newVName.trim(),
+          emails: emailList,
+          phones: newVPhones.split(',').map(p => p.trim()).filter(p => p !== ''),
+          categories: newVCategories
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to create vendor.");
+      }
+
+      triggerSuccess(`Vendor '${newVName}' successfully created.`);
+      
+      // Reset state
+      setNewVName("");
+      setNewVEmails("");
+      setNewVPhones("");
+      setNewVCategories([]);
+      setShowAddVendorModal(false);
+
+      // Refresh vendors lists
+      await fetchVendorsList();
+      await onRefresh();
+    } catch (err: any) {
+      setNewVError(err.message || "Error creating vendor.");
+    } finally {
+      setAddingVendorLoading(false);
+    }
+  };
+  
+  // Completion form states
+  const [showCompletionForm, setShowCompletionForm] = useState(false);
+  const [editAadhar, setEditAadhar] = useState("");
+  const [editPassport, setEditPassport] = useState("");
+  const [editPassportIssue, setEditPassportIssue] = useState("");
+  const [editPassportExpiry, setEditPassportExpiry] = useState("");
+  const [editPolio, setEditPolio] = useState("Vaccinated");
+  const [editPolioExpiry, setEditPolioExpiry] = useState("");
+  const [editYfv, setEditYfv] = useState("Vaccinated");
+  const [editYfvExpiry, setEditYfvExpiry] = useState("");
+  const [editVisa, setEditVisa] = useState("");
+  const [editVisaExpiry, setEditVisaExpiry] = useState("");
+  const [editVisaCountry, setEditVisaCountry] = useState("");
+  const [editSeat, setEditSeat] = useState("WINDOW");
+  const [editMeal, setEditMeal] = useState("VEG");
+  const [editLuggage, setEditLuggage] = useState("");
+  const [completionSubmitting, setCompletionSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (selectedCard) {
+      const ind = indents.find(i => i.id === selectedCard.indentId);
+      const emp = employees.find(e => e.employee_code === ind?.employee_code);
+      setEditAadhar(emp?.aadhar_pan_number || "");
+      setEditPassport(emp?.passport_number || "");
+      setEditPassportIssue(emp?.passport_issue_date || "");
+      setEditPassportExpiry(emp?.passport_expiry || "");
+      setEditPolio(emp?.polio_vaccine_status || "Vaccinated");
+      setEditPolioExpiry(emp?.polio_certificate_expiry || "");
+      setEditYfv(emp?.yfv_status || "Vaccinated");
+      setEditYfvExpiry(emp?.yfv_certificate_expiry || "");
+      setEditVisa(emp?.visa_number || "");
+      setEditVisaExpiry(emp?.visa_expiry_date || "");
+      setEditVisaCountry(emp?.visa_country || "");
+      
+      setEditSeat(ind?.seat_preference || "WINDOW");
+      setEditMeal(ind?.meal_preference || "VEG");
+      setEditLuggage(ind?.luggage || "");
+    }
+  }, [selectedCard, indents, employees]);
+
+  const handleCompletionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCard) return;
+
+    const ind = indents.find(i => i.id === selectedCard.indentId);
+    if (!ind) {
+      triggerError("Associated travel request was not found.");
+      return;
+    }
+
+    setCompletionSubmitting(true);
+    try {
+      // 1. Save traveler profile details
+      const empRes = await fetch(`/api/employees/${ind.employee_code}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aadhar_pan_number: editAadhar || null,
+          passport_number: editPassport || null,
+          passport_issue_date: editPassportIssue || null,
+          passport_expiry: editPassportExpiry || null,
+          polio_vaccine_status: editPolio || null,
+          polio_certificate_expiry: editPolioExpiry || null,
+          yfv_status: editYfv || null,
+          yfv_certificate_expiry: editYfvExpiry || null,
+          visa_number: editVisa || null,
+          visa_expiry_date: editVisaExpiry || null,
+          visa_country: editVisaCountry || null
+        })
+      });
+
+      if (!empRes.ok) {
+        const errData = await empRes.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to update traveler profile.");
+      }
+
+      // 2. Save indent particulars (seat/meal preference, luggage)
+      const indentRes = await fetch(`/api/indents/${selectedCard.indentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seat_preference: editSeat || null,
+          meal_preference: editMeal || null,
+          luggage: editLuggage || null
+        })
+      });
+
+      if (!indentRes.ok) {
+        const errData = await indentRes.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to update travel particulars.");
+      }
+
+      // Record audit log of the completion
+      const newAudit: AuditLogEntry = {
+        timestamp: new Date().toISOString(),
+        userId: operatorId,
+        action: "Profile Completed",
+        notes: `Completed travel particulars and traveler compliance checklist for temporary profile: ${ind.employee_code}.`
+      };
+
+      const auditRes = await fetch(`/api/job-cards/${selectedCard.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          auditLogs: [newAudit]
+        })
+      });
+
+      if (!auditRes.ok) throw new Error("Failed to write audit log.");
+      const cardData = await auditRes.json();
+
+      triggerSuccess("Traveler compliance profile successfully completed!");
+      setShowCompletionForm(false);
+      if (cardData.jobCard) applyOptimisticUpdate(cardData.jobCard);
+      await onRefresh();
+    } catch (err: any) {
+      triggerError(err.message || "Error submitting profile particulars.");
+    } finally {
+      setCompletionSubmitting(false);
+    }
+  };
+
   // Manual Quote Input States
   const [quoteVendorName, setQuoteVendorName] = useState("");
   const [selectedBidEmails, setSelectedBidEmails] = useState<string[]>([]);
@@ -302,10 +489,7 @@ export default function JobCardManager({
 
   const [localError, setLocalError] = useState("");
   const [localSuccess, setLocalSuccess] = useState("");
-  const [selectedCards, setSelectedCards] = useState<string[]>([]);
-  const toggleSelectCard = (id: string) => {
-    setSelectedCards(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
-  };
+  
   const handleBatchApprove = async () => {
     if (selectedCards.length === 0) return;
     try {
@@ -327,8 +511,8 @@ export default function JobCardManager({
         triggerError(e.message);
     }
   };
+
   const [operatorId, setOperatorId] = useState("Corporate-Desk");
-  const [showPassedQuotes, setShowPassedQuotes] = useState(false);
 
   // Cost Variance Compliance notes
   const [bookingVarianceJustification, setBookingVarianceJustification] = useState("");
@@ -3085,6 +3269,51 @@ export default function JobCardManager({
                   );
                 })()}
 
+                {(() => {
+                  const step1Completed = selectedCard.stage !== 'QUOTATION';
+                  const step1Unlocked = true;
+
+                  const step2Completed = ['BOOKING', 'VENDOR_INVOICE', 'FINANCE', 'RECONCILIATION', 'CLOSED'].includes(selectedCard.stage) || (selectedCard.travelApprovalStatus === 'APPROVED' && selectedCard.commercialApprovalStatus === 'APPROVED');
+                  const step2Unlocked = step1Completed;
+
+                  const step3Completed = ['VENDOR_INVOICE', 'FINANCE', 'RECONCILIATION', 'CLOSED'].includes(selectedCard.stage) || !!selectedCard.bookingPNR;
+                  const step3Unlocked = step2Completed;
+
+                  const step4Completed = ['FINANCE', 'RECONCILIATION', 'CLOSED'].includes(selectedCard.stage) || !!selectedCard.ticketVendorInvoiceUrl;
+                  const step4Unlocked = step3Completed;
+
+                  const step5Completed = ['RECONCILIATION', 'CLOSED'].includes(selectedCard.stage) || !!selectedCard.financeCleared;
+                  const step5Unlocked = step4Completed;
+
+                  const step6Completed = selectedCard.stage === 'CLOSED';
+                  const step6Unlocked = step5Completed;
+
+                  const step7Completed = selectedCard.stage === 'CLOSED';
+                  const step7Unlocked = step6Completed || step5Completed; // Unlocks when payment cleared or card is closed
+
+                  const winQuote = selectedCard.quotes?.find(q => q.id === selectedCard.winningQuoteId || q.isWinning);
+                  const winningQuoteVendorName = winQuote?.vendorName || "N/A";
+                  const winningQuoteAmount = winQuote ? `${winQuote.amount} ${winQuote.currency}` : "N/A";
+                  
+                  // Helper to convert currency value dynamically for preview display
+                  const convertToINRLocal = (val: number, cur: string) => {
+                    const cleanCur = cur === "$" ? "USD" : cur;
+                    const rates = forexRates || { USD: 1.0825, INR: 90.35, EUR: 1.0 };
+                    const inrRate = rates["INR"] || 90.35;
+                    const curRate = rates[cleanCur] || 1.0;
+                    return val * (inrRate / curRate);
+                  };
+
+                  const formattedBookedAmount = selectedCard.finalBookingAmount 
+                    ? Math.round(convertToINRLocal(selectedCard.finalBookingAmount || 0, selectedCard.bookingCurrency || "INR")).toLocaleString() 
+                    : "0";
+
+                  const formattedInvoiceAmount = selectedCard.invoiceVendorAmount 
+                    ? Math.round(convertToINRLocal(selectedCard.invoiceVendorAmount || 0, selectedCard.invoiceCurrency || "INR")).toLocaleString() 
+                    : "0";
+
+                  return (
+                    <div className="space-y-4">
                       {/* ACCORDION 1: SUMMARY OVERVIEW */}
                       <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
                         <button
@@ -3094,11 +3323,16 @@ export default function JobCardManager({
                             activeViewSection === 'OVERVIEW' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
                           }`}
                         >
-                          <div className="flex items-center gap-2">
-                            <LayoutDashboard className="w-4 h-4 text-orange-500" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Summary Overview</span>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
+                            <div className="flex items-center gap-2">
+                              <LayoutDashboard className="w-4 h-4 text-orange-500" />
+                              <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Summary Overview</span>
+                            </div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                              Traveler: {selectedCard.travelerName || "N/A"} • Stage: {selectedCard.stage}
+                            </span>
                           </div>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
                             {activeViewSection === 'OVERVIEW' ? "Collapse [-]" : "Expand [+]"}
                           </span>
                         </button>
@@ -3334,24 +3568,248 @@ export default function JobCardManager({
                       </div>
 
                       {/* ACCORDION 2: STEP 1: BIDS & QUOTATIONS */}
-                      <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                      <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step1Unlocked ? "opacity-60" : ""}`}>
                         <button
                           type="button"
+                          disabled={!step1Unlocked}
                           onClick={() => setActiveViewSection(activeViewSection === 'QUOTATION' ? null : 'QUOTATION')}
-                          className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
-                            activeViewSection === 'QUOTATION' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                          className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
+                            !step1Unlocked 
+                              ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
+                              : activeViewSection === 'QUOTATION' 
+                              ? "bg-slate-900 text-white cursor-pointer" 
+                              : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
                           }`}
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 1: Vendor Bids & Quotations</span>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 1: Vendor Bids & Quotations</span>
+                              <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                                step1Completed 
+                                  ? "bg-emerald-100 text-emerald-800" 
+                                  : "bg-amber-100 text-amber-800"
+                              }`}>
+                                {step1Completed ? "✓ Completed" : "⏳ Pending Bids"}
+                              </span>
+                            </div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                              {step1Completed 
+                                ? `Winning Bid: ${winningQuoteVendorName} (${winningQuoteAmount})` 
+                                : `${selectedCard.quotes?.length || 0} Bids Received`}
+                            </span>
                           </div>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
                             {activeViewSection === 'QUOTATION' ? "Collapse [-]" : "Expand [+]"}
                           </span>
                         </button>
                         
                         {activeViewSection === 'QUOTATION' && (
                           <div className="p-6 border-t border-slate-100 bg-white space-y-6">
+
+                            {/* WARNING VARIANCES */}
+                            {selectedCard.indentId && indents.find(i => i.id === selectedCard.indentId)?.employee_code?.startsWith("EMP-TEMP-") && (
+                              <div className="bg-amber-50 border-2 border-amber-200 p-5 rounded-2xl space-y-4">
+                                <div className="flex items-start gap-3">
+                                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                                  <div>
+                                    <span className="font-black text-[10px] uppercase tracking-widest text-amber-950 block">Incomplete traveler profile</span>
+                                    <p className="text-amber-900 text-xs font-bold uppercase tracking-wider mt-1">
+                                      This request was submitted via the public portal. Passport, Visa, Aadhaar, and compliance records are currently missing.
+                                    </p>
+                                  </div>
+                                </div>
+                                
+                                {!showCompletionForm ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowCompletionForm(true)}
+                                    className="px-4 py-2 bg-amber-950 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-900 transition cursor-pointer"
+                                  >
+                                    Complete Profile Details Now
+                                  </button>
+                                ) : (
+                                  <form onSubmit={handleCompletionSubmit} className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-xs animate-fade-in">
+                                    <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-950 pb-2 border-b border-slate-100">
+                                      Provide Traveler Compliance Details
+                                    </h5>
+                                    
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Aadhaar / PAN Number</label>
+                                        <input
+                                          type="text"
+                                          value={editAadhar}
+                                          onChange={e => setEditAadhar(e.target.value)}
+                                          placeholder="e.g. 5928 2910 2012"
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Passport Number</label>
+                                        <input
+                                          type="text"
+                                          value={editPassport}
+                                          onChange={e => setEditPassport(e.target.value)}
+                                          placeholder="e.g. A92810291"
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Passport Issue Date</label>
+                                        <input
+                                          type="date"
+                                          value={editPassportIssue}
+                                          onChange={e => setEditPassportIssue(e.target.value)}
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Passport Expiry Date</label>
+                                        <input
+                                          type="date"
+                                          value={editPassportExpiry}
+                                          onChange={e => setEditPassportExpiry(e.target.value)}
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Visa Number</label>
+                                        <input
+                                          type="text"
+                                          value={editVisa}
+                                          onChange={e => setEditVisa(e.target.value)}
+                                          placeholder="e.g. V928102"
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Visa Expiry Date</label>
+                                        <input
+                                          type="date"
+                                          value={editVisaExpiry}
+                                          onChange={e => setEditVisaExpiry(e.target.value)}
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Visa Country</label>
+                                        <input
+                                          type="text"
+                                          value={editVisaCountry}
+                                          onChange={e => setEditVisaCountry(e.target.value)}
+                                          placeholder="e.g. India"
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Polio Vaccine</label>
+                                        <select
+                                          value={editPolio}
+                                          onChange={e => setEditPolio(e.target.value)}
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        >
+                                          <option value="Vaccinated">Vaccinated</option>
+                                          <option value="Not Vaccinated">Not Vaccinated</option>
+                                        </select>
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Polio Cert Expiry</label>
+                                        <input
+                                          type="date"
+                                          value={editPolioExpiry}
+                                          onChange={e => setEditPolioExpiry(e.target.value)}
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">YFV Status</label>
+                                        <select
+                                          value={editYfv}
+                                          onChange={e => setEditYfv(e.target.value)}
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        >
+                                          <option value="Vaccinated">Vaccinated</option>
+                                          <option value="Not Vaccinated">Not Vaccinated</option>
+                                        </select>
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">YFV Cert Expiry</label>
+                                        <input
+                                          type="date"
+                                          value={editYfvExpiry}
+                                          onChange={e => setEditYfvExpiry(e.target.value)}
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Seat Preference</label>
+                                        <select
+                                          value={editSeat}
+                                          onChange={e => setEditSeat(e.target.value)}
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        >
+                                          <option value="WINDOW">Window</option>
+                                          <option value="AISLE">Aisle</option>
+                                          <option value="MIDDLE">Middle</option>
+                                        </select>
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Meal Preference</label>
+                                        <select
+                                          value={editMeal}
+                                          onChange={e => setEditMeal(e.target.value)}
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        >
+                                          <option value="VEG">Veg</option>
+                                          <option value="NON_VEG">Non-Veg</option>
+                                          <option value="VEGAN">Vegan</option>
+                                        </select>
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider block font-bold">Luggage Details</label>
+                                        <input
+                                          type="text"
+                                          value={editLuggage}
+                                          onChange={e => setEditLuggage(e.target.value)}
+                                          placeholder="e.g. 23kg checkin"
+                                          className="w-full h-10 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs font-semibold focus:outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="flex gap-2 justify-end pt-3">
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowCompletionForm(false)}
+                                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition cursor-pointer"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        type="submit"
+                                        disabled={completionSubmitting}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition cursor-pointer flex items-center justify-center gap-2"
+                                      >
+                                        {completionSubmitting ? "Saving..." : "Save Compliance Details"}
+                                      </button>
+                                    </div>
+                                  </form>
+                                )}
+                              </div>
+                            )}
                       
                       {/* SUBSECTION B: REGISTER MANUAL QUOTATION */}
                       <div className="border-t border-slate-100 pt-6 space-y-4">
@@ -3372,30 +3830,40 @@ export default function JobCardManager({
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                               <div>
                                 <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Selected Vendor Name</label>
-                                <select
-                                  required
-                                  value={quoteVendorName}
-                                  onChange={e => {
-                                    const val = e.target.value;
-                                    setQuoteVendorName(val);
-                                    const vendorObj = vendorsList.find(v => v.name === val);
-                                    if (vendorObj) {
-                                      const emailsList = vendorObj.emails || [];
-                                      const phonesList = vendorObj.phones || [];
-                                      setSelectedBidEmails(emailsList);
-                                      setSelectedBidPhones(phonesList);
-                                    } else {
-                                      setSelectedBidEmails([]);
-                                      setSelectedBidPhones([]);
-                                    }
-                                  }}
-                                  className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition cursor-pointer"
-                                >
-                                  <option value="">-- Select Vendor --</option>
-                                  {vendorsList.map(v => (
-                                    <option key={v.id} value={v.name}>{v.name}</option>
-                                  ))}
-                                </select>
+                                <div className="flex gap-2">
+                                  <select
+                                    required
+                                    value={quoteVendorName}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      setQuoteVendorName(val);
+                                      const vendorObj = vendorsList.find(v => v.name === val);
+                                      if (vendorObj) {
+                                        const emailsList = vendorObj.emails || [];
+                                        const phonesList = vendorObj.phones || [];
+                                        setSelectedBidEmails(emailsList);
+                                        setSelectedBidPhones(phonesList);
+                                      } else {
+                                        setSelectedBidEmails([]);
+                                        setSelectedBidPhones([]);
+                                      }
+                                    }}
+                                    className="flex-1 h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition cursor-pointer"
+                                  >
+                                    <option value="">-- Select Vendor --</option>
+                                    {vendorsList.map(v => (
+                                      <option key={v.id} value={v.name}>{v.name}</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowAddVendorModal(true)}
+                                    className="h-11 w-11 bg-slate-950 text-white rounded-xl flex items-center justify-center hover:bg-slate-850 active:scale-95 transition shadow-sm shrink-0 font-extrabold text-lg cursor-pointer"
+                                    title="Register New Vendor"
+                                  >
+                                    +
+                                  </button>
+                                </div>
                               </div>
 
                               <div>
@@ -3704,18 +4172,39 @@ export default function JobCardManager({
                   </div>
 
                   {/* ACCORDION 3: STEP 2: OPERATIONAL & VP APPROVALS */}
-                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step2Unlocked ? "opacity-60" : ""}`}>
                     <button
                       type="button"
+                      disabled={!step2Unlocked}
                       onClick={() => setActiveViewSection(activeViewSection === 'APPROVAL' ? null : 'APPROVAL')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
-                        activeViewSection === 'APPROVAL' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
+                        !step2Unlocked
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : activeViewSection === 'APPROVAL'
+                          ? "bg-slate-900 text-white cursor-pointer"
+                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 2: Operational & VP Approvals</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 2: Operational & VP Approvals</span>
+                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                            !step2Unlocked
+                              ? "bg-slate-200 text-slate-500"
+                              : step2Completed
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {!step2Unlocked ? "🔒 Locked" : step2Completed ? "✓ Approved" : "⏳ Pending Approval"}
+                          </span>
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                          {!step2Unlocked
+                            ? "Complete Step 1 first"
+                            : `L1: ${selectedCard.travelApprovalStatus === 'APPROVED' ? "✓" : "✗"} • L2: ${selectedCard.commercialApprovalStatus === 'APPROVED' ? "✓" : "✗"}`}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
                         {activeViewSection === 'APPROVAL' ? "Collapse [-]" : "Expand [+]"}
                       </span>
                     </button>
@@ -4226,18 +4715,41 @@ export default function JobCardManager({
                   </div>
 
                   {/* ACCORDION 4: STEP 3: TICKET BOOKING & PNR REGISTRY */}
-                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step3Unlocked ? "opacity-60" : ""}`}>
                     <button
                       type="button"
+                      disabled={!step3Unlocked}
                       onClick={() => setActiveViewSection(activeViewSection === 'BOOKING' ? null : 'BOOKING')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
-                        activeViewSection === 'BOOKING' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
+                        !step3Unlocked
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : activeViewSection === 'BOOKING'
+                          ? "bg-slate-900 text-white cursor-pointer"
+                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 3: Ticket Booking & PNR Registry</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 3: Ticket Booking & PNR Registry</span>
+                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                            !step3Unlocked
+                              ? "bg-slate-200 text-slate-500"
+                              : step3Completed
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {!step3Unlocked ? "🔒 Locked" : step3Completed ? "✓ Booked" : "⏳ Pending Booking"}
+                          </span>
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                          {!step3Unlocked
+                            ? "Complete Step 2 first"
+                            : step3Completed
+                            ? `PNR: ${selectedCard.bookingPNR || "N/A"} • ₹${formattedBookedAmount}`
+                            : "No PNR recorded yet"}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
                         {activeViewSection === 'BOOKING' ? "Collapse [-]" : "Expand [+]"}
                       </span>
                     </button>
@@ -4387,18 +4899,41 @@ export default function JobCardManager({
                   </div>
 
                   {/* ACCORDION 5: STEP 4: VENDOR INVOICES & GST VALIDATION */}
-                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step4Unlocked ? "opacity-60" : ""}`}>
                     <button
                       type="button"
+                      disabled={!step4Unlocked}
                       onClick={() => setActiveViewSection(activeViewSection === 'VENDOR_INVOICE' ? null : 'VENDOR_INVOICE')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
-                        activeViewSection === 'VENDOR_INVOICE' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
+                        !step4Unlocked
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : activeViewSection === 'VENDOR_INVOICE'
+                          ? "bg-slate-900 text-white cursor-pointer"
+                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 4: Vendor Invoices & GST validation</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 4: Vendor Invoices & GST Validation</span>
+                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                            !step4Unlocked
+                              ? "bg-slate-200 text-slate-500"
+                              : step4Completed
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {!step4Unlocked ? "🔒 Locked" : step4Completed ? "✓ Uploaded" : "⏳ Pending Invoice"}
+                          </span>
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                          {!step4Unlocked
+                            ? "Complete Step 3 first"
+                            : step4Completed
+                            ? `Invoice: ₹${formattedInvoiceAmount} • GST: ${selectedCard.airlineGstNumber ? "✓" : "N/A"}`
+                            : "No invoice uploaded yet"}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
                         {activeViewSection === 'VENDOR_INVOICE' ? "Collapse [-]" : "Expand [+]"}
                       </span>
                     </button>
@@ -4593,18 +5128,41 @@ export default function JobCardManager({
                   </div>
 
                   {/* ACCORDION 6: STEP 5: FINANCE CLEARANCE & RELEASES */}
-                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step5Unlocked ? "opacity-60" : ""}`}>
                     <button
                       type="button"
+                      disabled={!step5Unlocked}
                       onClick={() => setActiveViewSection(activeViewSection === 'FINANCE' ? null : 'FINANCE')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
-                        activeViewSection === 'FINANCE' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
+                        !step5Unlocked
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : activeViewSection === 'FINANCE'
+                          ? "bg-slate-900 text-white cursor-pointer"
+                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 5: Finance Clearance & Releases</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 5: Finance Clearance & Releases</span>
+                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                            !step5Unlocked
+                              ? "bg-slate-200 text-slate-500"
+                              : step5Completed
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {!step5Unlocked ? "🔒 Locked" : step5Completed ? "✓ Cleared" : "⏳ Pending Finance"}
+                          </span>
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                          {!step5Unlocked
+                            ? "Complete Step 4 first"
+                            : step5Completed
+                            ? `Payment: ${selectedCard.paymentTransactionRef || "Cleared"}`
+                            : "Awaiting payment clearance"}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
                         {activeViewSection === 'FINANCE' ? "Collapse [-]" : "Expand [+]"}
                       </span>
                     </button>
@@ -4766,18 +5324,41 @@ export default function JobCardManager({
                   </div>
 
                   {/* ACCORDION 7: STEP 6: RECONCILIATION & AUDITING LOGS */}
-                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step6Unlocked ? "opacity-60" : ""}`}>
                     <button
                       type="button"
+                      disabled={!step6Unlocked}
                       onClick={() => setActiveViewSection(activeViewSection === 'RECONCILIATION' ? null : 'RECONCILIATION')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
-                        activeViewSection === 'RECONCILIATION' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
+                        !step6Unlocked
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : activeViewSection === 'RECONCILIATION'
+                          ? "bg-slate-900 text-white cursor-pointer"
+                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 6: Reconciliation & Auditing Logs</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 6: Reconciliation & Auditing Logs</span>
+                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                            !step6Unlocked
+                              ? "bg-slate-200 text-slate-500"
+                              : step6Completed
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {!step6Unlocked ? "🔒 Locked" : step6Completed ? "✓ Audited" : "⏳ Pending Audit"}
+                          </span>
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                          {!step6Unlocked
+                            ? "Complete Step 5 first"
+                            : step6Completed
+                            ? "Audit complete — Variance checked"
+                            : "Awaiting reconciliation review"}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
                         {activeViewSection === 'RECONCILIATION' ? "Collapse [-]" : "Expand [+]"}
                       </span>
                     </button>
@@ -5080,18 +5661,41 @@ export default function JobCardManager({
                   </div>
 
                   {/* ACCORDION 8: STEP 7: FINAL RECONCILIATION (CLOSED) */}
-                  <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
+                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step7Unlocked ? "opacity-60" : ""}`}>
                     <button
                       type="button"
+                      disabled={!step7Unlocked}
                       onClick={() => setActiveViewSection(activeViewSection === 'CLOSED' ? null : 'CLOSED')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
-                        activeViewSection === 'CLOSED' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
+                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
+                        !step7Unlocked
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : activeViewSection === 'CLOSED'
+                          ? "bg-slate-900 text-white cursor-pointer"
+                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 7: Final Reconciliation (Closed)</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 7: Final Reconciliation (Closed)</span>
+                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                            !step7Unlocked
+                              ? "bg-slate-200 text-slate-500"
+                              : step7Completed
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {!step7Unlocked ? "🔒 Locked" : step7Completed ? "✓ Closed" : "⏳ Open"}
+                          </span>
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                          {!step7Unlocked
+                            ? "Complete Step 6 first"
+                            : step7Completed
+                            ? "Job card closed — All stages verified"
+                            : "Ready to close"}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
                         {activeViewSection === 'CLOSED' ? "Collapse [-]" : "Expand [+]"}
                       </span>
                     </button>
@@ -5151,6 +5755,9 @@ export default function JobCardManager({
                       </div>
                     )}
                   </div>
+                  </div>
+                  );
+                })()}
 
               </motion.div>
             )}
@@ -5368,6 +5975,147 @@ export default function JobCardManager({
               >
                 Acknowledge & Proceed
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ADD NEW VENDOR MODAL */}
+      <AnimatePresence>
+        {showAddVendorModal && (
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-white border-2 border-slate-900 rounded-[2rem] p-6 max-w-lg w-full shadow-2xl relative space-y-5"
+            >
+              <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-orange-600" />
+                  <h3 className="text-sm font-black uppercase tracking-wider text-slate-950">
+                    Register New Vendor
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddVendorModal(false);
+                    setNewVName("");
+                    setNewVEmails("");
+                    setNewVPhones("");
+                    setNewVCategories([]);
+                    setNewVError("");
+                  }}
+                  className="p-1 hover:bg-slate-100 rounded-lg transition text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {newVError && (
+                <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-700 rounded-xl text-xs font-bold uppercase tracking-wider">
+                  {newVError}
+                </div>
+              )}
+
+              <form onSubmit={handleAddVendorSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest font-bold">
+                    Vendor Business Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Thomas Cook Business"
+                    value={newVName}
+                    onChange={e => setNewVName(e.target.value)}
+                    className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest font-bold">
+                    Vendor Emails (Comma separated)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. agent1@thomascook.in, corp@thomascook.in"
+                    value={newVEmails}
+                    onChange={e => setNewVEmails(e.target.value)}
+                    className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest font-bold">
+                    Vendor Phones (Comma separated, optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. +91 22 4918 6000, +91 98765 43210"
+                    value={newVPhones}
+                    onChange={e => setNewVPhones(e.target.value)}
+                    className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest font-bold">
+                    Service Categories (Select multiple)
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {["FLIGHT", "HOTEL", "TRAIN", "INTERNATIONAL", "CAB", "BUS"].map(cat => {
+                      const active = newVCategories.includes(cat);
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => {
+                            if (active) {
+                              setNewVCategories(prev => prev.filter(c => c !== cat));
+                            } else {
+                              setNewVCategories(prev => [...prev, cat]);
+                            }
+                          }}
+                          className={`py-2 px-3 rounded-xl border text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
+                            active 
+                              ? "bg-slate-950 border-slate-950 text-white" 
+                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddVendorModal(false);
+                      setNewVName("");
+                      setNewVEmails("");
+                      setNewVPhones("");
+                      setNewVCategories([]);
+                      setNewVError("");
+                    }}
+                    className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[10px] uppercase tracking-widest rounded-xl transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={addingVendorLoading}
+                    className="flex-1 py-3 bg-slate-950 hover:bg-slate-800 disabled:opacity-50 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {addingVendorLoading ? "Creating..." : "Create Vendor"}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
