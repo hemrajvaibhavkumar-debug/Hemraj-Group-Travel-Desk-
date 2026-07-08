@@ -2,6 +2,81 @@ import { Response } from "express";
 import { prisma } from "../../../src/db/prisma";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import * as N8nService from "../services/n8n.service";
+import { createNotificationInternal } from "./notification.controller";
+import { env } from "../config/env";
+import path from "path";
+
+// Helper function to extract mime type and extension from base64 string
+function getBase64Details(base64Str: string): { mimeType: string; extension: string; cleanedData: string } {
+  const mimeMatch = base64Str.match(/^data:(.*?);base64,/);
+  const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+  const cleanedData = base64Str.replace(/^data:.*?;base64,/, "");
+
+  let extension = ".bin";
+  if (mimeType.includes("pdf")) extension = ".pdf";
+  else if (mimeType.includes("jpeg") || mimeType.includes("jpg")) extension = ".jpg";
+  else if (mimeType.includes("png")) extension = ".png";
+  else if (mimeType.includes("gif")) extension = ".gif";
+  else if (mimeType.includes("svg")) extension = ".svg";
+
+  return { mimeType, extension, cleanedData };
+}
+
+// Main helper to process and upload base64 file inputs to Google Drive via n8n
+async function handleBase64Upload(
+  fieldValue: string | undefined | null,
+  fileName: string | undefined | null,
+  category: "Quotations" | "Tickets" | "Invoices",
+  context: { travelerName: string; employeeCode: string; jobCardId: string; vendorName?: string; pnr?: string; invoiceNo?: string; fileType?: string }
+): Promise<string | null | undefined> {
+  if (!fieldValue || !fieldValue.startsWith("data:")) {
+    return fieldValue;
+  }
+
+  try {
+    const { mimeType, extension } = getBase64Details(fieldValue);
+
+    // Construct dynamic path and safe names
+    const safeTravelerName = context.travelerName.replace(/[^a-zA-Z0-9]/g, "_");
+    const safeVendorName = (context.vendorName || "Vendor").replace(/[^a-zA-Z0-9]/g, "_");
+    const folderPath = `03_Job_Cards/JobCard_${context.jobCardId}_${safeTravelerName}/${category}`;
+
+    let resolvedFileName = `file_${Date.now()}${extension}`;
+    if (category === "Quotations") {
+      resolvedFileName = `Quote_${context.jobCardId}_${safeVendorName}_${Date.now()}${extension}`;
+    } else if (category === "Tickets") {
+      resolvedFileName = `Ticket_${context.jobCardId}_${context.pnr || "PNR"}_${safeTravelerName}${extension}`;
+    } else if (category === "Invoices") {
+      const typeLabel = context.fileType || "Vendor_Invoice";
+      resolvedFileName = `${typeLabel}_${context.jobCardId}_${safeVendorName}_${context.invoiceNo || "No"}${extension}`;
+    }
+
+    console.log(`Intercepted inline base64 for JobCard ${context.jobCardId} (${category}). Uploading to Google Drive: ${folderPath}/${resolvedFileName}`);
+    const result = await N8nService.sendUploadWebhook({
+      fileName: fileName || resolvedFileName,
+      fileData: fieldValue,
+      fileType: mimeType,
+      documentCategory: category.toLowerCase(),
+      folderPath,
+      resolvedFileName
+    });
+
+    if (result.success && result.url) {
+      console.log(`Successfully uploaded. Google Drive URL: ${result.url}`);
+      return result.url;
+    } else {
+      // Fallback relative URL
+      const cleanName = (fileName || resolvedFileName).replace(/[^a-zA-Z0-9.\-_]/g, "_");
+      const relativeUrl = `/uploads/${Date.now()}_${cleanName}`;
+      console.warn(`Webhook failed or unconfigured, returning local fallback: ${relativeUrl}`);
+      return relativeUrl;
+    }
+  } catch (err: any) {
+    console.error("Base64 upload processing failed:", err.message);
+    return fieldValue; // fallback to original data
+  }
+}
+
 
 // Helper function to map normalized database schema back to flat JSON format expected by frontend.
 function mapJobCardToFrontend(dbJobCard: any): any {
@@ -183,6 +258,9 @@ export async function createJobCard(req: AuthenticatedRequest, res: Response) {
       include: jobCardInclude
     });
 
+    await createNotificationInternal("TRAVEL_DESK", "Job Card Initialized", `Job Card initialized for Indent ${indentId}. Ready for Vendor Bidding & Quotation proposals.`, `#/jobcards`);
+    await createNotificationInternal("SUPERADMIN", "Job Card Initialized", `Job Card initialized for Indent ${indentId}. Ready for Vendor Bidding & Quotation proposals.`, `#/jobcards`);
+
     return res.status(201).json({ success: true, jobCard: mapJobCardToFrontend(newJob) });
   } catch (error: any) {
     const isUniqueConstraintError = error?.code === "P2002" && Array.isArray(error?.meta?.target);
@@ -269,6 +347,74 @@ export async function updateJobCard(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    // Fetch Job Card details first to get contextual metadata
+    const jobCardContext = await prisma.jobCard.findUnique({
+      where: { id },
+      include: {
+        indent: {
+          include: {
+            employee: true
+          }
+        },
+        booking: true,
+        invoice: true
+      }
+    });
+
+    if (!jobCardContext) {
+      return res.status(404).json({ error: `Job Card with ID '${id}' was not found.` });
+    }
+
+    const employeeCode = jobCardContext.indent.employee.employee_code;
+    const travelerName = jobCardContext.indent.employee.name;
+
+    // Intercept base64 encoded document uploads
+    if (bookingUpdates.ticketFileUrl) {
+      bookingUpdates.ticketFileUrl = await handleBase64Upload(
+        bookingUpdates.ticketFileUrl,
+        bookingUpdates.ticketFileName,
+        "Tickets",
+        { travelerName, employeeCode, jobCardId: id, pnr: bookingUpdates.bookingPNR || jobCardContext.booking?.bookingPNR || undefined }
+      );
+    }
+    if (bookingUpdates.ticketVendorInvoiceUrl) {
+      bookingUpdates.ticketVendorInvoiceUrl = await handleBase64Upload(
+        bookingUpdates.ticketVendorInvoiceUrl,
+        bookingUpdates.ticketVendorInvoiceName,
+        "Invoices",
+        { travelerName, employeeCode, jobCardId: id, vendorName: bookingUpdates.bookingVendor || jobCardContext.booking?.bookingVendor || undefined, fileType: "Vendor_Invoice" }
+      );
+    }
+    if (invoiceUpdates.airlineGstInvoiceUrl) {
+      invoiceUpdates.airlineGstInvoiceUrl = await handleBase64Upload(
+        invoiceUpdates.airlineGstInvoiceUrl,
+        invoiceUpdates.airlineGstInvoiceName,
+        "Invoices",
+        { travelerName, employeeCode, jobCardId: id, vendorName: invoiceUpdates.airlineGstVendorName || jobCardContext.invoice?.airlineGstVendorName || undefined, invoiceNo: invoiceUpdates.invoiceNumber || jobCardContext.invoice?.invoiceNumber || undefined, fileType: "Airline_GST_Invoice" }
+      );
+    }
+    if (reschedulingUpdates.cancellationGstInvoiceUrl) {
+      reschedulingUpdates.cancellationGstInvoiceUrl = await handleBase64Upload(
+        reschedulingUpdates.cancellationGstInvoiceUrl,
+        reschedulingUpdates.cancellationGstInvoiceName,
+        "Invoices",
+        { travelerName, employeeCode, jobCardId: id, fileType: "Cancellation_GST_Invoice" }
+      );
+    }
+
+    if (quotesData && Array.isArray(quotesData)) {
+      for (const q of quotesData) {
+        if (q.quoteFileUrl && q.quoteFileUrl.startsWith("data:")) {
+          q.quoteFileUrl = await handleBase64Upload(
+            q.quoteFileUrl,
+            q.quoteFileName,
+            "Quotations",
+            { travelerName, employeeCode, jobCardId: id, vendorName: q.vendorName }
+          );
+        }
+      }
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       await tx.jobCard.update({
         where: { id },
@@ -325,6 +471,8 @@ export async function updateJobCard(req: AuthenticatedRequest, res: Response) {
               layover: q.layover,
               travelDate: q.travelDate,
               agentName: q.agentName,
+              travelType: q.travelType,
+              visaType: q.visaType,
               selectedEmails: q.selectedEmails ? JSON.parse(JSON.stringify(q.selectedEmails)) : undefined,
               selectedPhones: q.selectedPhones ? JSON.parse(JSON.stringify(q.selectedPhones)) : undefined
             },
@@ -343,6 +491,8 @@ export async function updateJobCard(req: AuthenticatedRequest, res: Response) {
               layover: q.layover,
               travelDate: q.travelDate,
               agentName: q.agentName,
+              travelType: q.travelType,
+              visaType: q.visaType,
               selectedEmails: q.selectedEmails ? JSON.parse(JSON.stringify(q.selectedEmails)) : undefined,
               selectedPhones: q.selectedPhones ? JSON.parse(JSON.stringify(q.selectedPhones)) : undefined
             }
@@ -385,6 +535,33 @@ export async function updateJobCard(req: AuthenticatedRequest, res: Response) {
       timeout: 30000
     });
 
+    // Dispatch Role-Based Notifications
+    if (updates.travelApprovalStatus === "APPROVED") {
+      await createNotificationInternal("TRAVEL_DESK", "Trip Approved (L1)", `Travel Indent ${id} has been approved by L1. Ready for Quotation bidding.`, `#/jobcards`);
+      await createNotificationInternal("SUPERADMIN", "Trip Approved (L1)", `Travel Indent ${id} has been approved by L1. Ready for Quotation bidding.`, `#/jobcards`);
+    } else if (updates.travelApprovalStatus === "REJECTED") {
+      await createNotificationInternal("TRAVEL_DESK", "Trip Rejected (L1)", `Travel Indent ${id} has been rejected by L1.`, `#/jobcards`);
+      await createNotificationInternal("SUPERADMIN", "Trip Rejected (L1)", `Travel Indent ${id} has been rejected by L1.`, `#/jobcards`);
+    }
+
+    if (updates.approvalStatus === "PENDING") {
+      await createNotificationInternal("VP_COMMERCIAL", "Quotation Approval Pending", `Job Card ${id} has pending quotes to select and approve.`, `#/jobcards`);
+      await createNotificationInternal("SUPERADMIN", "Quotation Approval Pending", `Job Card ${id} has pending quotes to select and approve.`, `#/jobcards`);
+    } else if (updates.approvalStatus === "APPROVED") {
+      await createNotificationInternal("TRAVEL_DESK", "Quotation Approved", `VP Commercial approved selected quotes for Job Card ${id}. Ready for Booking fulfillment.`, `#/jobcards`);
+      await createNotificationInternal("SUPERADMIN", "Quotation Approved", `VP Commercial approved selected quotes for Job Card ${id}. Ready for Booking fulfillment.`, `#/jobcards`);
+    }
+
+    if (bookingUpdates.bookingPNR || bookingUpdates.ticketFileUrl) {
+      await createNotificationInternal("FINANCE", "Invoice Uploaded & Ticket Booked", `Travel Desk uploaded booked tickets for Job Card ${id} (PNR: ${bookingUpdates.bookingPNR || "N/A"}). Ready for Finance clearance.`, `#/jobcards`);
+      await createNotificationInternal("SUPERADMIN", "Invoice Uploaded & Ticket Booked", `Travel Desk uploaded booked tickets for Job Card ${id} (PNR: ${bookingUpdates.bookingPNR || "N/A"}). Ready for Finance clearance.`, `#/jobcards`);
+    }
+
+    if (paymentUpdates.financeCleared === true || paymentUpdates.paymentStatus === "PAID") {
+      await createNotificationInternal("TRAVEL_DESK", "Payment Finalized", `Finance cleared payments for Job Card ${id}. Request lifecycle complete.`, `#/jobcards`);
+      await createNotificationInternal("SUPERADMIN", "Payment Finalized", `Finance cleared payments for Job Card ${id}. Request lifecycle complete.`, `#/jobcards`);
+    }
+
     return res.json({ success: true, jobCard: mapJobCardToFrontend(updated) });
   } catch (error: any) {
     return res.status(500).json({ error: "Failed to persist Job Card adjustments: " + error.message });
@@ -409,8 +586,30 @@ export async function rescheduleJobCard(req: AuthenticatedRequest, res: Response
     }
 
     const now = new Date().toISOString();
-    const parentCard = await prisma.jobCard.findUnique({ where: { id } });
+    const parentCard = await prisma.jobCard.findUnique({
+      where: { id },
+      include: {
+        indent: {
+          include: {
+            employee: true
+          }
+        }
+      }
+    });
     if (!parentCard) return res.status(404).json({ error: `Parent Job Card ${id} not found.` });
+
+    const employeeCode = parentCard.indent.employee.employee_code;
+    const travelerName = parentCard.indent.employee.name;
+
+    let finalInvoiceUrl = cancellationGstInvoiceUrl;
+    if (cancellationGstInvoiceUrl) {
+      finalInvoiceUrl = await handleBase64Upload(
+        cancellationGstInvoiceUrl,
+        cancellationGstInvoiceName,
+        "Invoices",
+        { travelerName, employeeCode, jobCardId: id, fileType: "Cancellation_GST_Invoice" }
+      );
+    }
 
     const siblingCount = await prisma.jobCard.count({
       where: { indentId: parentCard.indentId }
@@ -428,7 +627,7 @@ export async function rescheduleJobCard(req: AuthenticatedRequest, res: Response
                 cancellationReason: reason,
                 cancelledAt: now,
                 cancellationCharges,
-                cancellationGstInvoiceUrl,
+                cancellationGstInvoiceUrl: finalInvoiceUrl,
                 cancellationGstInvoiceName,
                 rescheduledToCardId: childId
               },
@@ -437,7 +636,7 @@ export async function rescheduleJobCard(req: AuthenticatedRequest, res: Response
                 cancellationReason: reason,
                 cancelledAt: now,
                 cancellationCharges,
-                cancellationGstInvoiceUrl,
+                cancellationGstInvoiceUrl: finalInvoiceUrl,
                 cancellationGstInvoiceName,
                 rescheduledToCardId: childId
               }

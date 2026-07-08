@@ -22,7 +22,7 @@ export async function createIndent(req: AuthenticatedRequest, res: Response) {
   try {
     const indent = req.body;
 
-    const validCategories = ["DOMESTIC", "INTERNATIONAL", "INTERNATIONAL_RETURN", "TRAIN", "BUS", "CAB"];
+    const validCategories = ["DOMESTIC", "INTERNATIONAL", "INTERNATIONAL_RETURN", "TRAIN", "BUS", "CAB", "VISA", "VENDOR"];
     if (!indent.travel_type || !validCategories.includes(indent.travel_type)) {
       return res.status(400).json({ error: `Check Constraint: Travel Category '${indent.travel_type}' is invalid.` });
     }

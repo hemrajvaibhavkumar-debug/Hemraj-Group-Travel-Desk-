@@ -453,6 +453,9 @@ export default function JobCardManager({
   const [quoteTravelDate, setQuoteTravelDate] = useState("");
   const [isAirlineQuote, setIsAirlineQuote] = useState(false);
 
+  const [quoteTravelType, setQuoteTravelType] = useState("FLIGHT");
+  const [quoteVisaType, setQuoteVisaType] = useState("");
+
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
 
   // Booking Fulfillment form states
@@ -813,6 +816,8 @@ export default function JobCardManager({
     setQuoteLayover(quote.layover || "");
     setQuoteTravelDate(quote.travelDate || "");
     setIsAirlineQuote(!!quote.airline);
+    setQuoteTravelType(quote.travelType || "FLIGHT");
+    setQuoteVisaType(quote.visaType || "");
     setSelectedBidEmails(quote.selectedEmails || []);
     setSelectedBidPhones(quote.selectedPhones || []);
     
@@ -835,6 +840,8 @@ export default function JobCardManager({
     setQuoteFileBase64("");
     setQuoteFileName("");
     setIsAirlineQuote(false);
+    setQuoteTravelType("FLIGHT");
+    setQuoteVisaType("");
     setSelectedBidEmails([]);
     setSelectedBidPhones([]);
   };
@@ -862,6 +869,8 @@ export default function JobCardManager({
         layover: quoteLayover || undefined,
         travelDate: quoteTravelDate,
         agentName: activeUserName,
+        travelType: quoteTravelType,
+        visaType: quoteVisaType || undefined,
         selectedEmails: selectedBidEmails,
         selectedPhones: selectedBidPhones
       };
@@ -2414,12 +2423,54 @@ export default function JobCardManager({
     }
 
     return [
-      { title: "Quotation Bidding", spentStr: createdTime ? formatDuration(s1Spent) : "N/A", limitStr: "48 Hours", status: s1Status },
-      { title: "Review & Approval", spentStr: rfqEndTime ? formatDuration(s2Spent) : "Awaiting Quote Selection", limitStr: "24 Hours", status: s2Status },
-      { title: "Work Order Dispatch", spentStr: l2EndTime ? formatDuration(s3Spent) : "Awaiting Approval", limitStr: "2 Hours", status: s3Status },
-      { title: "Ticket Fulfillment", spentStr: woEndTime ? formatDuration(s4Spent) : "Awaiting Work Order", limitStr: "6 Hours", status: s4Status },
-      { title: "Invoice Submission", spentStr: bkEndTime ? formatDuration(s5Spent) : "Awaiting Booking", limitStr: "10 Days", status: s5Status },
-      { title: "GST Clearance", spentStr: !isGstApplicable ? "N/A (Non-GST)" : invEndTime ? formatDuration(s6Spent) : "Awaiting Invoice", limitStr: "10 Days", status: s6Status }
+      { 
+        title: "Quotation Bidding", 
+        spentStr: createdTime ? formatDuration(s1Spent) : "N/A", 
+        limitStr: "48 Hours", 
+        status: s1Status,
+        isBreached: s1Status === 'delayed',
+        progressStatus: rfqEndTime ? "COMPLETED" : "IN_PROGRESS"
+      },
+      { 
+        title: "Review & Approval", 
+        spentStr: rfqEndTime ? (l2EndTime ? formatDuration(s2Spent) : "Awaiting Approval") : "Awaiting Quote Selection", 
+        limitStr: "24 Hours", 
+        status: s2Status,
+        isBreached: s2Status === 'delayed',
+        progressStatus: l2EndTime ? "COMPLETED" : (rfqEndTime ? "IN_PROGRESS" : "PENDING")
+      },
+      { 
+        title: "Work Order Dispatch", 
+        spentStr: l2EndTime ? (woEndTime ? formatDuration(s3Spent) : "Awaiting Work Order") : "Awaiting Approval", 
+        limitStr: "2 Hours", 
+        status: s3Status,
+        isBreached: s3Status === 'delayed',
+        progressStatus: woEndTime ? "COMPLETED" : (l2EndTime ? "IN_PROGRESS" : "PENDING")
+      },
+      { 
+        title: "Ticket Fulfillment", 
+        spentStr: woEndTime ? (bkEndTime ? formatDuration(s4Spent) : "Awaiting Booking") : "Awaiting Work Order", 
+        limitStr: "6 Hours", 
+        status: s4Status,
+        isBreached: s4Status === 'delayed',
+        progressStatus: bkEndTime ? "COMPLETED" : (woEndTime ? "IN_PROGRESS" : "PENDING")
+      },
+      { 
+        title: "Invoice Submission", 
+        spentStr: bkEndTime ? (invEndTime ? formatDuration(s5Spent) : "Awaiting Invoice") : "Awaiting Booking", 
+        limitStr: "10 Days", 
+        status: s5Status,
+        isBreached: s5Status === 'delayed',
+        progressStatus: invEndTime ? "COMPLETED" : (bkEndTime ? "IN_PROGRESS" : "PENDING")
+      },
+      { 
+        title: "GST Clearance", 
+        spentStr: !isGstApplicable ? "N/A (Non-GST)" : (invEndTime ? (gstEndTime ? formatDuration(s6Spent) : "Awaiting GST Clearance") : "Awaiting Invoice"), 
+        limitStr: "10 Days", 
+        status: s6Status,
+        isBreached: isGstApplicable && s6Status === 'delayed',
+        progressStatus: !isGstApplicable || gstEndTime ? "COMPLETED" : (invEndTime ? "IN_PROGRESS" : "PENDING")
+      }
     ];
   };
 
@@ -2621,6 +2672,8 @@ export default function JobCardManager({
                 <option value="TRAIN">Train</option>
                 <option value="BUS">Bus</option>
                 <option value="CAB">Cab</option>
+                <option value="VISA">Visa</option>
+                <option value="VENDOR">Vendor/Other</option>
               </select>
             </div>
 
@@ -3388,18 +3441,10 @@ export default function JobCardManager({
                             </div>
                             
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                              {tatStages.map((stage) => {
-                                const isBreached = stage.status === "delayed";
-                                const isCompleted = stage.status === "within" && (
-                                  stage.spentStr !== "N/A" && 
-                                  stage.spentStr !== "Awaiting Quote Selection" &&
-                                  stage.spentStr !== "Awaiting Approval" &&
-                                  stage.spentStr !== "Awaiting Work Order" &&
-                                  stage.spentStr !== "Awaiting Booking" &&
-                                  stage.spentStr !== "Awaiting Invoice" &&
-                                  stage.spentStr !== "N/A (Non-GST)"
-                                );
-                                const isInProgress = stage.status === "within" && !isCompleted;
+                              {tatStages.map((stage: any) => {
+                                const isBreached = stage.isBreached;
+                                const isCompleted = stage.progressStatus === "COMPLETED";
+                                const isInProgress = stage.progressStatus === "IN_PROGRESS";
                                 
                                 let cardBg = "bg-slate-50/50 border-slate-200 text-slate-500";
                                 let badgeBg = "bg-slate-100 text-slate-500 border-slate-200";
@@ -3897,6 +3942,44 @@ export default function JobCardManager({
                               </div>
                             </div>
 
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                              <div>
+                                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Travel/Transport Type</label>
+                                <select
+                                  value={quoteTravelType}
+                                  onChange={e => {
+                                    setQuoteTravelType(e.target.value);
+                                    if (e.target.value !== "VISA") setQuoteVisaType("");
+                                  }}
+                                  className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition cursor-pointer"
+                                >
+                                  <option value="FLIGHT">Flight</option>
+                                  <option value="TRAIN">Train</option>
+                                  <option value="BUS">Bus</option>
+                                  <option value="CAB">Cab</option>
+                                  <option value="VISA">Visa Processing</option>
+                                  <option value="VENDOR">Vendor/Other Service</option>
+                                </select>
+                              </div>
+
+                              {quoteTravelType === "VISA" && (
+                                <div>
+                                  <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Visa Type</label>
+                                  <select
+                                    value={quoteVisaType}
+                                    onChange={e => setQuoteVisaType(e.target.value)}
+                                    className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition cursor-pointer"
+                                  >
+                                    <option value="">Select Visa Type...</option>
+                                    <option value="BUSINESS">Business Visa</option>
+                                    <option value="TOURIST">Tourist Visa</option>
+                                    <option value="WORK">Work / Employment Visa</option>
+                                    <option value="OTHER">Other Visa</option>
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                               <div>
                                 <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 font-bold">Total Bid Amount</label>
@@ -4065,6 +4148,7 @@ export default function JobCardManager({
                                     <th className="px-4 py-5 border-r border-slate-800 text-white">ID</th>
                                     <th className="px-4 py-5 border-r border-slate-800 text-white">Vendor</th>
                                     <th className="px-4 py-5 border-r border-slate-800 text-white">Agent</th>
+                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Type</th>
                                     <th className="px-4 py-5 border-r border-slate-800 text-white">Airline</th>
                                     <th className="px-4 py-5 border-r border-slate-800 text-white">Sector</th>
                                     <th className="px-4 py-5 border-r border-slate-800 text-white">Layover</th>
@@ -4109,6 +4193,9 @@ export default function JobCardManager({
                                         </td>
                                         <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-black whitespace-normal break-words">
                                           {q.agentName || "Direct"}
+                                        </td>
+                                        <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-black whitespace-normal break-words">
+                                          {q.travelType || "FLIGHT"} {q.visaType ? `(${q.visaType})` : ""}
                                         </td>
                                         <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-black whitespace-normal break-words">
                                           {q.airline || "Direct"}

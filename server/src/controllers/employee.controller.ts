@@ -28,10 +28,25 @@ export async function createEmployee(req: AuthenticatedRequest, res: Response) {
       return res.status(409).json({ error: `Conflict: Employee with code ${emp.employee_code} already exists.` });
     }
 
+    // Normalize empty-string aadhar to null to avoid unique constraint collisions on blank values
+    const normalizedAadhar = emp.aadhar_pan_number?.trim() || null;
+
+    // Check aadhar_pan_number uniqueness before creating
+    if (normalizedAadhar) {
+      const aadharConflict = await prisma.employee.findFirst({
+        where: { aadhar_pan_number: normalizedAadhar }
+      });
+      if (aadharConflict) {
+        return res.status(409).json({
+          error: `Conflict: Aadhaar/PAN number ${normalizedAadhar} is already registered under employee ${aadharConflict.employee_code} (${aadharConflict.name}).`
+        });
+      }
+    }
+
     const newEmp = await prisma.employee.create({
       data: {
         employee_code: emp.employee_code,
-        aadhar_pan_number: emp.aadhar_pan_number || null,
+        aadhar_pan_number: normalizedAadhar,
         name: emp.name,
         email: emp.email,
         phone: emp.phone,
@@ -88,10 +103,31 @@ export async function updateEmployee(req: AuthenticatedRequest, res: Response) {
       return res.status(404).json({ error: "Employee record not found." });
     }
 
+    // Check email uniqueness against OTHER employees
     if (emp.email && emp.email !== current.email) {
       const emailConflict = await prisma.employee.findUnique({ where: { email: emp.email } });
       if (emailConflict) {
         return res.status(409).json({ error: `Conflict: Email ${emp.email} is registered under another operator.` });
+      }
+    }
+
+    // Normalize empty-string aadhar_pan_number to null (avoids spurious unique constraint collisions)
+    const normalizedAadhar = emp.aadhar_pan_number !== undefined
+      ? (emp.aadhar_pan_number?.trim() || null)
+      : undefined;
+
+    // Check aadhar_pan_number uniqueness against OTHER employees
+    if (normalizedAadhar && normalizedAadhar !== current.aadhar_pan_number) {
+      const aadharConflict = await prisma.employee.findFirst({
+        where: {
+          aadhar_pan_number: normalizedAadhar,
+          NOT: { employee_code: id }
+        }
+      });
+      if (aadharConflict) {
+        return res.status(409).json({
+          error: `Conflict: Aadhaar/PAN number ${normalizedAadhar} is already registered under employee ${aadharConflict.employee_code} (${aadharConflict.name}).`
+        });
       }
     }
 
@@ -107,7 +143,7 @@ export async function updateEmployee(req: AuthenticatedRequest, res: Response) {
         approver_designation: emp.approver_designation !== undefined ? emp.approver_designation : undefined,
         cost_centre: emp.cost_centre !== undefined ? emp.cost_centre : undefined,
         default_billing_currency: emp.default_billing_currency !== undefined ? emp.default_billing_currency : undefined,
-        aadhar_pan_number: emp.aadhar_pan_number !== undefined ? emp.aadhar_pan_number : undefined,
+        aadhar_pan_number: normalizedAadhar,
         native_city: emp.native_city !== undefined ? emp.native_city : undefined,
         nearest_airport: emp.nearest_airport !== undefined ? emp.nearest_airport : undefined,
         nearest_railway_station: emp.nearest_railway_station !== undefined ? emp.nearest_railway_station : undefined,

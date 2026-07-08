@@ -16,12 +16,10 @@ async function executeScanJobInBackground(jobId: string, fileType: string, clean
     });
   } catch (error: any) {
     console.error(`Scan job ${jobId} background processing failed:`, error.message);
-    const simulatedFallback = GeminiService.getSimulatedData(fileType);
     await prisma.scanJob.update({
       where: { id: jobId },
       data: {
-        status: "COMPLETED", // complete with fallback to prevent UI blockages
-        result: JSON.parse(JSON.stringify(simulatedFallback)),
+        status: "FAILED",
         error: error.message
       }
     });

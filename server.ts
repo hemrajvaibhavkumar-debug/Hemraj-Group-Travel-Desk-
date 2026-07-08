@@ -1,9 +1,25 @@
 import dotenv from "dotenv";
-dotenv.config();
+import path from "path";
+import fs from "fs";
+
+function loadEnv() {
+  let dir = process.cwd();
+  for (let i = 0; i < 4; i++) {
+    const envPath = path.join(dir, ".env");
+    if (fs.existsSync(envPath)) {
+      dotenv.config({ path: envPath });
+      return;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  dotenv.config();
+}
+loadEnv();
 
 import express from "express";
 import http from "http";
-import path from "path";
 import { createServer as createViteServer } from "vite";
 import { prisma } from "./src/db/prisma";
 import { env } from "./server/src/config/env";

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { prisma } from "../../../src/db/prisma";
+import { createNotificationInternal } from "./notification.controller";
 
 export async function createPublicRequest(req: Request, res: Response) {
   try {
@@ -69,6 +70,10 @@ export async function createPublicRequest(req: Request, res: Response) {
         status: "PENDING"
       }
     });
+
+    // Trigger notification to TRAVEL_DESK and SUPERADMIN
+    await createNotificationInternal("TRAVEL_DESK", "New Public Request Ingested", `Traveler ${name} logged a travel request draft ${draftId} to ${to}.`, "#/indents");
+    await createNotificationInternal("SUPERADMIN", "New Public Request Ingested", `Traveler ${name} logged a travel request draft ${draftId} to ${to}.`, "#/indents");
 
     return res.status(201).json({ success: true, request: newRequest });
   } catch (error: any) {

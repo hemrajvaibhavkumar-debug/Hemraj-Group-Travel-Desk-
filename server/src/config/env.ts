@@ -1,7 +1,24 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+import path from "path";
+import fs from "fs";
 
-dotenv.config();
+// Robust loader that searches upwards for .env to support ESM, CJS, dev, and prod bundling
+function loadEnv() {
+  let dir = process.cwd();
+  for (let i = 0; i < 4; i++) {
+    const envPath = path.join(dir, ".env");
+    if (fs.existsSync(envPath)) {
+      dotenv.config({ path: envPath });
+      return;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  dotenv.config();
+}
+loadEnv();
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(5173),

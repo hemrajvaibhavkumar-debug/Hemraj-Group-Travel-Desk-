@@ -175,6 +175,8 @@ export default function PublicIndentForm() {
                   <option value="TRAIN">Train</option>
                   <option value="BUS">Bus</option>
                   <option value="CAB">Cab</option>
+                  <option value="VISA">Visa Processing</option>
+                  <option value="VENDOR">Vendor/Other Service</option>
                 </select>
               </div>
 

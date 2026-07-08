@@ -7,9 +7,11 @@ interface IndentFormProps {
   draftId?: string | null;
   onSubmit: (indent: Partial<TravelIndent>, employee?: Employee) => Promise<void>;
   onCancel: () => void;
+  onAddEmployee?: (employee: Employee) => Promise<void>;
+  onUpdateEmployee?: (employee: Employee) => Promise<void>;
 }
 
-export default function IndentForm({ employees, draftId, onSubmit, onCancel }: IndentFormProps) {
+export default function IndentForm({ employees, draftId, onSubmit, onCancel, onAddEmployee, onUpdateEmployee }: IndentFormProps) {
   // Toggle traveler sourcing
   const [useExistingEmployee, setUseExistingEmployee] = useState<boolean>(true);
   const [selectedEmpCode, setSelectedEmpCode] = useState<string>("");
@@ -17,6 +19,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel }: I
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isCompletingExisting, setIsCompletingExisting] = useState<boolean>(false);
   const [completingEmpCode, setCompletingEmpCode] = useState<string>("");
+  const [isSavingEmployee, setIsSavingEmployee] = useState<boolean>(false);
   
   // Validation State
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -154,112 +157,214 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel }: I
     }
   };
 
-  const nextStep = () => {
+  const nextStep = async () => {
     const section2Errors = validateSection2();
-    if (Object.keys(section2Errors).length === 0) {
-      setFormErrors({});
-      
-      // Enforce traveler profile completion if an incomplete existing employee is selected
-      if (useExistingEmployee && !isCompletingExisting) {
-        const emp = employees.find(e => e.employee_code === selectedEmpCode);
-        if (emp && !emp.profile_completed) {
-          setUseExistingEmployee(false);
-          setIsCompletingExisting(true);
-          setCompletingEmpCode(emp.employee_code);
+    if (Object.keys(section2Errors).length > 0) {
+      setFormErrors(section2Errors);
+      return;
+    }
+    
+    setFormErrors({});
+    
+    // Enforce traveler profile completion if an incomplete existing employee is selected
+    if (useExistingEmployee && !isCompletingExisting) {
+      const emp = employees.find(e => e.employee_code === selectedEmpCode);
+      if (emp && !emp.profile_completed) {
+        setUseExistingEmployee(false);
+        setIsCompletingExisting(true);
+        setCompletingEmpCode(emp.employee_code);
 
-          setTravelerForm(prev => ({
-            ...prev,
-            employeeId: emp.employee_code,
-            aadharPanNumber: emp.aadhar_pan_number || "",
-            name: emp.name || "",
-            email: emp.email || "",
-            phone: emp.phone || "",
-            designation: emp.designation || "",
-            department: (emp.department as Department) || "Purchase",
-            defaultTravelApprover: emp.default_travel_approver || "",
-            approverDesignation: emp.approver_designation || "",
-            costCentre: emp.cost_centre || "",
-            defaultBillingCurrency: (emp.default_billing_currency as BillingCurrency) || "INR",
-            nativeCity: emp.native_city || "",
-            nearestAirport: emp.nearest_airport || "",
-            nearestRailwayStation: emp.nearest_railway_station || "",
-            defaultModeOfTransport: emp.default_mode_of_transport || "",
-            extraBaggageRequired: emp.extra_baggage_required || false,
-            photographUrl: emp.photograph_url || "",
-            supportingDocumentsUrl: emp.supporting_documents_url || "",
-            presentLocationAbroad: emp.present_location_abroad || "",
-            assignedPlantSite: emp.assigned_plant_site || "",
-            nearestAirportIndia: emp.nearest_airport_india || "",
-            passportNumber: emp.passport_number || "",
-            passportIssueDate: emp.passport_issue_date || "",
-            passportExpiry: emp.passport_expiry || "",
-            polioVaccineStatus: emp.polio_vaccine_status || "Vaccinated",
-            polioCertificateExpiry: emp.polio_certificate_expiry || "",
-            yfvStatus: emp.yfv_status || "Vaccinated",
-            yfvCertificateExpiry: emp.yfv_certificate_expiry || "",
-            visaNumber: emp.visa_number || "",
-            visaExpiryDate: emp.visa_expiry_date || "",
-            visaCountry: emp.visa_country || "",
-            trainPreferredClass: emp.train_preferred_class || "",
-            trainBerthPreference: emp.train_berth_preference || "",
-            trainMealPreference: emp.train_meal_preference || "",
-            trainPreferredNumber: emp.train_preferred_number || "",
-          }));
-          return;
-        }
+        setTravelerForm(prev => ({
+          ...prev,
+          employeeId: emp.employee_code,
+          aadharPanNumber: emp.aadhar_pan_number || "",
+          name: emp.name || "",
+          email: emp.email || "",
+          phone: emp.phone || "",
+          designation: emp.designation || "",
+          department: (emp.department as Department) || "Purchase",
+          defaultTravelApprover: emp.default_travel_approver || "",
+          approverDesignation: emp.approver_designation || "",
+          costCentre: emp.cost_centre || "",
+          defaultBillingCurrency: (emp.default_billing_currency as BillingCurrency) || "INR",
+          nativeCity: emp.native_city || "",
+          nearestAirport: emp.nearest_airport || "",
+          nearestRailwayStation: emp.nearest_railway_station || "",
+          defaultModeOfTransport: emp.default_mode_of_transport || "",
+          extraBaggageRequired: emp.extra_baggage_required || false,
+          photographUrl: emp.photograph_url || "",
+          supportingDocumentsUrl: emp.supporting_documents_url || "",
+          presentLocationAbroad: emp.present_location_abroad || "",
+          assignedPlantSite: emp.assigned_plant_site || "",
+          nearestAirportIndia: emp.nearest_airport_india || "",
+          passportNumber: emp.passport_number || "",
+          passportIssueDate: emp.passport_issue_date || "",
+          passportExpiry: emp.passport_expiry || "",
+          polioVaccineStatus: emp.polio_vaccine_status || "Vaccinated",
+          polioCertificateExpiry: emp.polio_certificate_expiry || "",
+          yfvStatus: emp.yfv_status || "Vaccinated",
+          yfvCertificateExpiry: emp.yfv_certificate_expiry || "",
+          visaNumber: emp.visa_number || "",
+          visaExpiryDate: emp.visa_expiry_date || "",
+          visaCountry: emp.visa_country || "",
+          trainPreferredClass: emp.train_preferred_class || "",
+          trainBerthPreference: emp.train_berth_preference || "",
+          trainMealPreference: emp.train_meal_preference || "",
+          trainPreferredNumber: emp.train_preferred_number || "",
+        }));
+        return;
       }
+    }
 
-      // Auto-propagate traveler profile defaults to Step 2 Travel Particulars
-      let defaultApprover = "";
-      let defaultTitle = "";
-      let defaultPlant = travelForm.plant;
-      let defaultMeal = travelForm.mealPreference;
+    // Save/update the employee in the database if registering new or completing existing
+    const shouldSaveEmployee = !useExistingEmployee || isCompletingExisting;
 
-      if (useExistingEmployee) {
-        const emp = employees.find(e => e.employee_code === selectedEmpCode);
-        if (emp) {
-          defaultApprover = emp.default_travel_approver || "";
-          defaultTitle = emp.approver_designation || "";
-          if (emp.assigned_plant_site) {
-            const siteUpper = emp.assigned_plant_site.toUpperCase();
-            if (["HIPL", "RSIPL", "HRM", "SUNAGROW", "RICEFIELD"].includes(siteUpper)) {
-              defaultPlant = siteUpper;
-            }
+    if (shouldSaveEmployee) {
+      setIsSavingEmployee(true);
+      try {
+        const empCode = travelerForm.employeeId.trim() || "EMP-" + Math.floor(1000 + Math.random() * 9000);
+        const aadharPan = travelerForm.aadharPanNumber.trim() || "PAN-MOCK-" + Math.floor(10000 + Math.random() * 90000);
+        const fullName = travelerForm.name.trim() || "Guest Traveler";
+        const emailAddress = travelerForm.email.trim() || `guest.${Math.floor(1000 + Math.random() * 9000)}@hemrajgroup.com`;
+        const phoneNumber = travelerForm.phone.trim() || "+91 00000 00000";
+        const roleDesignation = travelerForm.designation.trim() || "Executive";
+        const dept = travelerForm.department.trim() || "Purchase";
+        const approver = travelerForm.defaultTravelApprover.trim() || "Rohit ji";
+        const appTitle = travelerForm.approverDesignation.trim() || "Chief Operating Officer";
+        const billingCost = travelerForm.costCentre.trim() || "HEM-GEN";
+
+        const employeePayload: Employee = {
+          employee_code: empCode,
+          aadhar_pan_number: aadharPan,
+          name: fullName,
+          email: emailAddress,
+          phone: phoneNumber,
+          designation: roleDesignation,
+          department: dept,
+          default_travel_approver: approver,
+          approver_designation: appTitle,
+          cost_centre: billingCost,
+          default_billing_currency: travelerForm.defaultBillingCurrency || "INR",
+          
+          // Domestic
+          native_city: travelerForm.baseCity || undefined,
+          nearest_airport: travelerForm.nearestAirport || undefined,
+          nearest_railway_station: travelerForm.nearestRailwayStation || undefined,
+          default_mode_of_transport: travelerForm.defaultModeOfTransport || undefined,
+          extra_baggage_required: travelerForm.extraBaggageRequired,
+          photograph_url: travelerForm.photograph || undefined,
+          supporting_documents_url: travelerForm.supportingDocuments || undefined,
+          
+          // Train
+          train_preferred_class: travelerForm.trainPreferredClass || undefined,
+          train_berth_preference: travelerForm.trainBerthPreference || undefined,
+          train_meal_preference: travelerForm.trainMealPreference || undefined,
+          train_preferred_number: travelerForm.trainPreferredNumber || undefined,
+
+          // International
+          present_location_abroad: travelerForm.presentLocationAbroad || undefined,
+          assigned_plant_site: travelerForm.assignedPlantSite || undefined,
+          nearest_airport_india: travelerForm.nearestAirportIndia || undefined,
+          passport_number: travelerForm.passportNumber || undefined,
+          passport_issue_date: travelerForm.passportIssueDate || undefined,
+          passport_expiry: travelerForm.passportExpiryDate || undefined,
+          passport_front_page_url: travelerForm.passportFrontPage || undefined,
+          passport_back_page_url: travelerForm.passportBackPage || undefined,
+          offer_letter_url: travelerForm.offerLetter || undefined,
+          polio_vaccine_status: travelerForm.polioVaccineStatus || undefined,
+          polio_certificate_expiry: travelerForm.polioCertificateExpiry || undefined,
+          yfv_status: travelerForm.yfvStatus || undefined,
+          yfv_certificate_expiry: travelerForm.yfvCertificateExpiry || undefined,
+          visa_number: travelerForm.visaNumber || undefined,
+          visa_expiry_date: travelerForm.visaExpiryDate || undefined,
+          visa_country: travelerForm.visaCountry || undefined,
+          profile_completed: true
+        };
+
+        if (!useExistingEmployee) {
+          if (onAddEmployee) {
+            await onAddEmployee(employeePayload);
+          } else {
+            const res = await fetch("/api/employees", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(employeePayload)
+            });
+            if (!res.ok) throw new Error("Failed to add employee");
           }
-          if (travelForm.type === "TRAIN" && emp.train_preferred_class) {
-            if (emp.train_meal_preference === "Veg") defaultMeal = "VEG";
-            else if (emp.train_meal_preference === "Non-Veg") defaultMeal = "NON_VEG";
-            else if (emp.train_meal_preference === "Jain Meal") defaultMeal = "OTHER";
+          setSelectedEmpCode(empCode);
+          setUseExistingEmployee(true);
+        } else if (isCompletingExisting) {
+          if (onUpdateEmployee) {
+            await onUpdateEmployee(employeePayload);
+          } else {
+            const res = await fetch(`/api/employees/${employeePayload.employee_code}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(employeePayload)
+            });
+            if (!res.ok) throw new Error("Failed to update employee");
           }
+          setIsCompletingExisting(false);
+          setUseExistingEmployee(true);
+          setSelectedEmpCode(employeePayload.employee_code);
         }
-      } else {
-        defaultApprover = travelerForm.defaultTravelApprover;
-        defaultTitle = travelerForm.approverDesignation;
-        if (travelerForm.assignedPlantSite) {
-          const siteUpper = travelerForm.assignedPlantSite.toUpperCase();
+      } catch (err: any) {
+        alert("Failed to save traveler profile: " + err.message);
+        setIsSavingEmployee(false);
+        return;
+      }
+      setIsSavingEmployee(false);
+    }
+
+    // Auto-propagate traveler profile defaults to Step 2 Travel Particulars
+    let defaultApprover = "";
+    let defaultTitle = "";
+    let defaultPlant = travelForm.plant;
+    let defaultMeal = travelForm.mealPreference;
+
+    if (useExistingEmployee) {
+      const emp = employees.find(e => e.employee_code === selectedEmpCode);
+      if (emp) {
+        defaultApprover = emp.default_travel_approver || "";
+        defaultTitle = emp.approver_designation || "";
+        if (emp.assigned_plant_site) {
+          const siteUpper = emp.assigned_plant_site.toUpperCase();
           if (["HIPL", "RSIPL", "HRM", "SUNAGROW", "RICEFIELD"].includes(siteUpper)) {
             defaultPlant = siteUpper;
           }
         }
-        if (travelForm.type === "TRAIN") {
-          if (travelerForm.trainMealPreference === "Veg") defaultMeal = "VEG";
-          else if (travelerForm.trainMealPreference === "Non-Veg") defaultMeal = "NON_VEG";
-          else if (travelerForm.trainMealPreference === "Jain Meal") defaultMeal = "OTHER";
+        if (travelForm.type === "TRAIN" && emp.train_preferred_class) {
+          if (emp.train_meal_preference === "Veg") defaultMeal = "VEG";
+          else if (emp.train_meal_preference === "Non-Veg") defaultMeal = "NON_VEG";
+          else if (emp.train_meal_preference === "Jain Meal") defaultMeal = "OTHER";
         }
       }
-
-      setTravelForm(prev => ({
-        ...prev,
-        travelApprover: prev.travelApprover || defaultApprover,
-        approverTitle: prev.approverTitle || defaultTitle,
-        plant: prev.plant === "HIPL" && defaultPlant !== "HIPL" ? defaultPlant : prev.plant,
-        mealPreference: prev.mealPreference === "VEG" && defaultMeal !== "VEG" ? defaultMeal : prev.mealPreference
-      }));
-
-      setCurrentStep(2);
     } else {
-      setFormErrors(section2Errors);
+      defaultApprover = travelerForm.defaultTravelApprover;
+      defaultTitle = travelerForm.approverDesignation;
+      if (travelerForm.assignedPlantSite) {
+        const siteUpper = travelerForm.assignedPlantSite.toUpperCase();
+        if (["HIPL", "RSIPL", "HRM", "SUNAGROW", "RICEFIELD"].includes(siteUpper)) {
+          defaultPlant = siteUpper;
+        }
+      }
+      if (travelForm.type === "TRAIN") {
+        if (travelerForm.trainMealPreference === "Veg") defaultMeal = "VEG";
+        else if (travelerForm.trainMealPreference === "Non-Veg") defaultMeal = "NON_VEG";
+        else if (travelerForm.trainMealPreference === "Jain Meal") defaultMeal = "OTHER";
+      }
     }
+
+    setTravelForm(prev => ({
+      ...prev,
+      travelApprover: prev.travelApprover || defaultApprover,
+      approverTitle: prev.approverTitle || defaultTitle,
+      plant: prev.plant === "HIPL" && defaultPlant !== "HIPL" ? defaultPlant : prev.plant,
+      mealPreference: prev.mealPreference === "VEG" && defaultMeal !== "VEG" ? defaultMeal : prev.mealPreference
+    }));
+
+    setCurrentStep(2);
   };
 
   const prevStep = () => {
@@ -557,7 +662,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel }: I
     }
 
     // Passport Expiry Warning Logic (< 1 year)
-    const isInternational = travelForm.type === "INTERNATIONAL" || travelForm.type === "INTERNATIONAL_RETURN";
+    const isInternational = travelForm.type === "INTERNATIONAL" || travelForm.type === "INTERNATIONAL_RETURN" || travelForm.type === "VISA";
     if (isInternational) {
       let expiryDateStr = "";
       if (useExistingEmployee) {
@@ -748,6 +853,8 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel }: I
                 <option value="TRAIN">Train</option>
                 <option value="BUS">Bus</option>
                 <option value="CAB">Cab</option>
+                <option value="VISA">Visa Processing</option>
+                <option value="VENDOR">Vendor/Other Service</option>
               </select>
             </div>
 
@@ -819,11 +926,22 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel }: I
                   className={`w-full max-w-lg bg-slate-50 border ${formErrors.selectedEmpCode ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2.5 text-sm`}
                 >
                   <option value="">-- Choose Profile --</option>
-                  {employees.map(emp => (
-                    <option key={emp.employee_code} value={emp.employee_code}>
-                      {emp.name} ({emp.employee_code}) - {emp.designation} [{emp.department}]
-                    </option>
-                  ))}
+                  {[...employees]
+                    .sort((a, b) => {
+                      const aComp = a.profile_completed ?? false;
+                      const bComp = b.profile_completed ?? false;
+                      if (!aComp && bComp) return -1;
+                      if (aComp && !bComp) return 1;
+                      return 0;
+                    })
+                    .map(emp => {
+                      const isIncomplete = !emp.profile_completed;
+                      return (
+                        <option key={emp.employee_code} value={emp.employee_code}>
+                          {emp.name} ({emp.employee_code}) {isIncomplete ? "⚠️ [NEW - INCOMPLETE]" : ""} - {emp.designation} [{emp.department}]
+                        </option>
+                      );
+                    })}
                 </select>
                 {formErrors.selectedEmpCode && (
                   <span className="text-xs font-medium text-rose-500 block">{formErrors.selectedEmpCode}</span>
@@ -1654,7 +1772,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel }: I
                         </div>
                       </div>
                     );
-                  } else if (travelForm.type === "INTERNATIONAL" || travelForm.type === "INTERNATIONAL_RETURN") {
+                  } else if (travelForm.type === "INTERNATIONAL" || travelForm.type === "INTERNATIONAL_RETURN" || travelForm.type === "VISA") {
                     return (
                       /* INTERNATIONAL PROFILE FIELDS */
                       <div className="bg-slate-50/50 rounded-xl p-5 border border-slate-100 mt-6">
@@ -2252,11 +2370,20 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel }: I
             )}
             {currentStep === 1 && (
               <button
+                id="btn-nav-next"
                 type="button"
+                disabled={isSavingEmployee}
                 onClick={nextStep}
-                className="bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest px-8 py-3.5 rounded-full shadow-lg duration-150"
+                className="px-6 h-11 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-md ml-auto flex items-center gap-2"
               >
-                Next Step
+                {isSavingEmployee ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving Profile...
+                  </>
+                ) : (
+                  "Next Step"
+                )}
               </button>
             )}
             {currentStep === 2 && (

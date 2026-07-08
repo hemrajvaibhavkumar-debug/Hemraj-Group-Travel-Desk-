@@ -1,4 +1,4 @@
-export type TravelCategory = 'DOMESTIC' | 'INTERNATIONAL' | 'INTERNATIONAL_RETURN' | 'TRAIN' | 'BUS' | 'CAB';
+export type TravelCategory = 'DOMESTIC' | 'INTERNATIONAL' | 'INTERNATIONAL_RETURN' | 'TRAIN' | 'BUS' | 'CAB' | 'VISA' | 'VENDOR';
 export type PriorityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type VisaType = 'BUSINESS' | 'TOURIST' | 'EMPLOYMENT' | 'OTHER';
 export type SeatPreference = 'WINDOW' | 'AISLE' | 'MIDDLE' | 'OTHER';
@@ -117,6 +117,8 @@ export interface JobCardQuote {
   agentName?: string;
   selectedEmails?: string[];
   selectedPhones?: string[];
+  travelType?: string;
+  visaType?: string;
 }
 
 export interface AuditLogEntry {

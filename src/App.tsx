@@ -7,6 +7,7 @@ import { usePersistedState } from "./hooks/usePersistedState";
 import IndentConsole from "./components/IndentConsole";
 import IndentForm from "./components/IndentForm";
 import DashboardReports from "./components/DashboardReports";
+import NotificationCenter from "./components/NotificationCenter";
 
 // Lazy-loaded heavy components for code-splitting
 const JobCardManager = lazy(() => import("./components/JobCardManager"));
@@ -801,7 +802,11 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              )}               <button
+              )}
+              
+              <NotificationCenter activeRole={activeRole} userEmail={user?.email} />
+
+              <button
                 onClick={fetchData}
                 disabled={loading}
                 title="Sync database tables"
@@ -882,6 +887,8 @@ export default function App() {
                         onCancel={() => {
                           window.location.hash = "#/indents";
                         }}
+                        onAddEmployee={handleAddEmployee}
+                        onUpdateEmployee={handleUpdateEmployee}
                       />
                     ) : currentView === "jobcards" ? (
                       <JobCardManager

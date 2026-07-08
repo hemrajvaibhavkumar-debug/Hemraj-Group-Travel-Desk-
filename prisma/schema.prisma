@@ -13,6 +13,8 @@ enum TravelCategory {
   TRAIN
   BUS
   CAB
+  VISA
+  VENDOR
 }
 
 enum PriorityLevel {
@@ -286,6 +288,8 @@ model JobCardQuote {
   agentName      String?
   selectedEmails Json?
   selectedPhones Json?
+  travelType     String?
+  visaType       String?
 
   // Relations
   jobCard        JobCard   @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
@@ -387,4 +391,16 @@ model PublicRequest {
   status                       String   @default("PENDING") // PENDING, PROMOTED
   created_at                   DateTime @default(now())
   updated_at                   DateTime @updatedAt
+}
+
+model Notification {
+  id         String   @id
+  userRole   String   // 'TRAVEL_DESK', 'TRAVEL_APPROVER', 'VP_COMMERCIAL', 'FINANCE', 'SUPERADMIN'
+  userId     String?  // Optional specific user email
+  title      String
+  message    String
+  read       Boolean  @default(false)
+  link       String?  // SPA router hash link, e.g., '#/indents' or '#/jobcards/JC-1002'
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

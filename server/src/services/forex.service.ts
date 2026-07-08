@@ -23,20 +23,20 @@ export async function getLiveForexRates(): Promise<Record<string, number>> {
   }
 
   try {
-    const accessKey = "efbf202b8d003cb06708b776"; // From old server.ts hardcoded key
-    const url = `https://v6.exchangerate-api.com/v6/${accessKey}/latest/EUR`;
+    const url = `https://open.er-api.com/v6/latest/EUR`;
     
-    console.log("Fetching live exchange rates from ExchangeRate API...");
+    console.log("Fetching live exchange rates from Free ExchangeRate API...");
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Forex API responded with status ${response.status}`);
     }
 
     const data = await response.json() as any;
-    if (data && data.conversion_rates) {
+    const rates = data.rates || data.conversion_rates;
+    if (data && rates) {
       cachedRates = {
         ...cachedRates,
-        ...data.conversion_rates
+        ...rates
       };
       lastFetched = now;
     }

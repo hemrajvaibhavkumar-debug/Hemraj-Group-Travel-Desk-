@@ -63,6 +63,23 @@ export function getSimulatedData(fileType: string) {
   }
 }
 
+function parseSafeJson(text: string): any {
+  try {
+    const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+    return JSON.parse(cleaned);
+  } catch (err) {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch (innerErr) {
+        throw new Error("Failed to parse JSON content from model output.");
+      }
+    }
+    throw err;
+  }
+}
+
 export async function processDocumentOcr(fileType: string, cleanMimeType: string, cleanedData: string, prompt: string): Promise<any> {
   const openRouterKey = env.OPENROUTER_API_KEY;
 
@@ -107,8 +124,7 @@ export async function processDocumentOcr(fileType: string, cleanMimeType: string
 
     const responseData = await response.json();
     const rawText = responseData.choices?.[0]?.message?.content || "{}";
-    const cleanedText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
-    return JSON.parse(cleanedText);
+    return parseSafeJson(rawText);
   } else if (env.GEMINI_API_KEY) {
     const imagePart = {
       inlineData: {
@@ -124,8 +140,7 @@ export async function processDocumentOcr(fileType: string, cleanMimeType: string
     }));
 
     const rawText = response.text || "{}";
-    const cleanedText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
-    return JSON.parse(cleanedText);
+    return parseSafeJson(rawText);
   } else {
     return getSimulatedData(fileType);
   }
