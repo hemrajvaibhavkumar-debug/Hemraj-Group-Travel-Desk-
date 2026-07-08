@@ -208,68 +208,119 @@ export default function IndentConsole({
   return (
     <div id="indent-console-panel" className="space-y-6">
 
-      {/* PUBLIC REQUESTS INTAKE QUEUE */}
-      {publicRequests.length > 0 && (
-        <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-2 border-amber-250 p-6 rounded-3xl space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-amber-200">
-            <div className="flex items-center gap-2">
-              <FileCheck2 className="w-5 h-5 text-amber-600 animate-pulse" />
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-widest text-amber-950">Public Travel Request Intake Queue</h3>
-                <p className="text-[9px] font-black text-amber-700 uppercase tracking-wider mt-0.5">
-                  {publicRequests.length} pending requests to process & promote to indents
-                </p>
-              </div>
-            </div>
+      {/* UPSIDE SECTION: PUBLIC REQUESTS INTAKE DATATABLE */}
+      <div className="bg-white border-2 border-slate-900 rounded-3xl p-6 md:p-8 shadow-xs space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+          <div>
+            <span className="text-[9px] font-black text-orange-600 uppercase tracking-widest block font-sans">Traveler Self-Service Intake</span>
+            <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight flex items-center gap-1.5">
+              <FileCheck2 className="w-5 h-5 text-orange-500" />
+              <span>Public Travel Requests (Intake Queue)</span>
+            </h3>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+              Verify and complete traveler-submitted drafts to formalize indents and initiate procurement workflows.
+            </p>
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {publicRequests.map((req) => (
-              <div key={req.id} className="bg-white border border-amber-200/60 rounded-2xl p-4 shadow-sm flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-start">
-                    <span className="text-[9px] font-mono font-black text-slate-400">{req.id}</span>
-                    <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">
-                      {req.travel_type}
-                    </span>
-                  </div>
-                  
-                  <div className="text-xs text-slate-800 font-extrabold uppercase">
-                    {req.traveler_name} <span className="text-slate-400 font-medium">({req.department})</span>
-                  </div>
-                  
-                  <div className="text-[10px] font-bold text-slate-500 flex items-center gap-1.5">
-                    <MapPin className="w-3 h-3 text-slate-400" />
-                    {req.origin} → {req.destination}
-                  </div>
-
-                  <div className="text-[10px] font-bold text-slate-500 flex items-center gap-1.5">
-                    <Calendar className="w-3 h-3 text-slate-400" />
-                    Date: {req.travel_date}
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-2 border-t border-slate-100 justify-end">
-                  <button
-                    onClick={() => handleRejectRequest(req.id)}
-                    className="px-3 py-1.5 hover:bg-rose-50 text-rose-600 rounded-lg text-[9px] font-black uppercase tracking-wider transition cursor-pointer"
-                  >
-                    Reject
-                  </button>
-                  <button
-                    onClick={() => {
-                      window.location.hash = `#/create/${req.id}`;
-                    }}
-                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition cursor-pointer flex items-center gap-1"
-                  >
-                    Process & Promote <ArrowRight className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          {publicRequests.length > 0 && (
+            <span className="self-start sm:self-center px-2.5 py-1 bg-amber-100 text-amber-900 border border-amber-250 text-[9px] font-black uppercase tracking-wider rounded-md animate-pulse">
+              ⚠️ {publicRequests.length} Pending
+            </span>
+          )}
         </div>
-      )}
+
+        {loadingRequests ? (
+          <div className="py-12 text-center text-slate-400">
+            <Loader2 className="w-6 h-6 animate-spin mx-auto text-orange-500 mb-2" />
+            <span className="text-[10px] font-black uppercase tracking-wider">Syncing public requests...</span>
+          </div>
+        ) : publicRequests.length === 0 ? (
+          <div className="bg-slate-50 border border-slate-100 rounded-2xl py-8 px-6 text-center text-slate-400 flex flex-col items-center justify-center">
+            <Check className="w-6 h-6 text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full p-1 mb-2" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 block">All public requests processed</span>
+            <span className="text-[9px] text-slate-400 block mt-0.5 font-semibold uppercase">Travel desk queue is currently empty</span>
+          </div>
+        ) : (
+          <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+            <table className="w-full text-left border-collapse text-xs font-semibold text-slate-700">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr className="text-[9px] font-black text-slate-950 uppercase tracking-widest">
+                  <th className="px-5 py-3">ID</th>
+                  <th className="px-5 py-3">Traveler</th>
+                  <th className="px-5 py-3">Origin / Destination</th>
+                  <th className="px-5 py-3">Travel Date</th>
+                  <th className="px-5 py-3">Type</th>
+                  <th className="px-5 py-3">Raiser / Approver</th>
+                  <th className="px-5 py-3 text-center">Action Command</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-bold text-slate-800">
+                {publicRequests.map((req) => (
+                  <tr key={req.id} className="hover:bg-slate-50/50 transition-all">
+                    <td className="px-5 py-3.5 font-mono text-[9px] text-slate-400">
+                      {req.id}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <div className="text-xs font-black text-slate-900 uppercase">{req.traveler_name}</div>
+                      <div className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">{req.designation} • {req.department}</div>
+                      <div className="text-[8.5px] text-slate-500 font-mono mt-0.5">{req.traveler_email} • {req.traveler_phone}</div>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <div className="text-xs font-black text-slate-850 uppercase">{req.origin} → {req.destination}</div>
+                      {req.domestic_connection_required && (
+                        <span className="inline-block mt-1 px-1.5 py-0.5 bg-orange-100 text-orange-850 text-[7px] font-black rounded uppercase tracking-wider">
+                          ✈ Domestic Connection Needed
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 text-slate-900 font-mono text-xs">
+                      {req.travel_date}
+                      {req.is_return && (
+                        <div className="text-[7.5px] font-black text-orange-600 uppercase tracking-widest mt-0.5">⇄ Return Incl.</div>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className={`inline-block px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
+                        req.travel_type === "FLIGHT" ? "bg-blue-50 text-blue-800 border-blue-200" :
+                        req.travel_type === "TRAIN" ? "bg-amber-50 text-amber-800 border-amber-200" :
+                        req.travel_type === "CAB" ? "bg-purple-50 text-purple-800 border-purple-200" :
+                        "bg-slate-50 text-slate-800 border-slate-200"
+                      }`}>
+                        {req.travel_type}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <div className="text-[10px] text-slate-900 font-extrabold uppercase">By: {req.indent_raiser || "Self"}</div>
+                      <div className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-wider mt-0.5">Appr: {req.travel_approver}</div>
+                      <div className="text-[7.5px] text-slate-500 font-mono uppercase tracking-widest">{req.approver_title}</div>
+                    </td>
+                    <td className="px-5 py-3.5 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            window.location.hash = `#/create/${req.id}`;
+                          }}
+                          className="px-2.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                        >
+                          <span>Complete Request</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRejectRequest(req.id)}
+                          className="px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-rose-50 text-rose-600 rounded-lg text-[9px] font-black uppercase tracking-wider transition cursor-pointer"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Active Indents View */}
       <div className="space-y-6">
