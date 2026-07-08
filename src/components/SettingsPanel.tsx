@@ -6,6 +6,7 @@ import {
   Building2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { useAuth } from "../context/AuthContext";
 
 interface SettingsPanelProps {
   onRefreshAllData: () => Promise<void>;
@@ -14,6 +15,9 @@ interface SettingsPanelProps {
 }
 
 export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: SettingsPanelProps) {
+  const { hasPermission } = useAuth();
+  const canManageSettings = hasPermission("MANAGE_SETTINGS");
+
   const [users, setUsers] = useState<RbacUser[]>([]);
   const [settings, setSettings] = useState<RbacSettings>({
     senderEmail: "travel-desk@hemraj-group.com",
@@ -149,9 +153,13 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
   };
 
   useEffect(() => {
-    fetchRbacData();
+    if (canManageSettings) {
+      fetchRbacData();
+    } else {
+      setLoading(false);
+    }
     fetchVendorsData();
-  }, []);
+  }, [canManageSettings]);
 
   const handleVendorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -461,7 +469,9 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
   return (
     <div id="settings-management-panel" className="space-y-10 max-w-7xl mx-auto">
       
-      {/* SECTION 1: SYSTEM ACTIVE PERSISTENT SIMULATION */}
+      {canManageSettings && (
+        <>
+          {/* SECTION 1: SYSTEM ACTIVE PERSISTENT SIMULATION */}
       <div className="bg-white border-2 border-slate-900 rounded-3xl p-6 md:p-8 shadow-xs space-y-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-slate-100 pb-5">
           <div className="space-y-1">
@@ -842,6 +852,8 @@ export default function SettingsPanel({ onRefreshAllData, onError, onSuccess }: 
           </div>
         </form>
       </div>
+        </>
+      )}
 
       {/* SECTION 4: ADD & MANAGE VENDORS */}
       <div className="bg-white border-2 border-slate-900 rounded-3xl p-6 md:p-8 shadow-xs space-y-6">

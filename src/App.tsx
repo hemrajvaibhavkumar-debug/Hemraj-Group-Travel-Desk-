@@ -439,7 +439,7 @@ export default function App() {
       case "employees":
         return hasPermission("MANAGE_EMPLOYEES");
       case "settings":
-        return hasPermission("MANAGE_SETTINGS");
+        return hasPermission("MANAGE_SETTINGS") || hasPermission("MANAGE_VENDORS");
       case "flight-search":
         return hasPermission("CREATE_INDENT") || hasPermission("VIEW_INDENTS");
       case "dashboard":
@@ -676,10 +676,10 @@ export default function App() {
                 </button>
               )}
 
-              {hasPermission("MANAGE_SETTINGS") && (
+              {(hasPermission("MANAGE_SETTINGS") || hasPermission("MANAGE_VENDORS")) && (
                 <div className="px-6 pb-2 text-[9px] font-black text-slate-900 uppercase tracking-widest mt-6">Administration</div>
               )}
-              {hasPermission("MANAGE_SETTINGS") && (
+              {(hasPermission("MANAGE_SETTINGS") || hasPermission("MANAGE_VENDORS")) && (
                 <button
                   onClick={() => { setCurrentView("settings"); setIsMobileMenuOpen(false); }}
                   id="btn-nav-settings"
