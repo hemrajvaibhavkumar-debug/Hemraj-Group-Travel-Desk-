@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { usePersistedState } from "../hooks/usePersistedState";
+import { jsPDF } from "jspdf";
 import { useAuth } from "../context/AuthContext";
 import { useTravelStore } from "../store/useTravelStore";
 
@@ -1192,6 +1193,75 @@ export default function JobCardManager({
     const seatPref = localIndent ? (localIndent.seat_preference === "OTHER" ? (localIndent.seat_preference_other || "Other") : (localIndent.seat_preference || "N/A")) : "N/A";
     const mealPref = localIndent ? (localIndent.meal_preference === "OTHER" ? (localIndent.meal_preference_other || "Other") : (localIndent.meal_preference || "N/A")) : "N/A";
 
+    // Generate PDF natively
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4"
+    });
+
+    // Header Branding
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(249, 115, 22); // Orange Theme
+    doc.text("HEMRAJ GROUP OF COMPANIES", 20, 20);
+
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Corporate Travel Operations Desk", 20, 25);
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, 28, 190, 28);
+
+    // Document Title
+    doc.setFontSize(13);
+    doc.setTextColor(15, 23, 42);
+    doc.text("DIGITAL WORK ORDER", 20, 36);
+
+    doc.setFontSize(9);
+    doc.setFont("Helvetica", "normal");
+    doc.text(`Reference ID: WO-${selectedCard.id}`, 20, 43);
+    doc.text(`Date of Issue: ${new Date().toLocaleDateString()}`, 140, 43);
+
+    // Section 1: Traveler
+    doc.setFillColor(248, 250, 252);
+    doc.rect(20, 48, 170, 32, "F");
+    doc.setFont("Helvetica", "bold");
+    doc.text("TRAVELER INFORMATION", 24, 54);
+    doc.setFont("Helvetica", "normal");
+    doc.text(`Name: ${selectedCard.travelerName}`, 24, 60);
+    doc.text(`Employee Code: ${localIndent?.employee_code || "N/A"}`, 24, 66);
+    doc.text(`Department: ${selectedCard.department || "N/A"}`, 24, 72);
+    doc.text(`Native/Base City: ${traveler?.native_city || "N/A"}`, 24, 78);
+
+    // Section 2: Booking
+    doc.setFillColor(248, 250, 252);
+    doc.rect(20, 86, 170, 52, "F");
+    doc.setFont("Helvetica", "bold");
+    doc.text("BOOKING CONSTRAINTS & PREFERENCES", 24, 92);
+    doc.setFont("Helvetica", "normal");
+    doc.text(`Transport Mode: ${localIndent?.travel_type || "FLIGHT"}`, 24, 98);
+    doc.text(`Sector / Destination: ${selectedCard.destination}`, 24, 104);
+    doc.text(`Target Travel Date: ${winQuote?.travelDate || localIndent?.travel_date || "Immediate"}`, 24, 110);
+    doc.text(`Seat Preference: ${seatPref}`, 24, 116);
+    doc.text(`Meal Preference: ${mealPref}`, 24, 122);
+    doc.text(`Luggage Allowance: ${localIndent?.luggage || "Standard"}`, 24, 128);
+    doc.text(`Booking PNR Status: ${selectedCard.bookingPNR || "TBD"}`, 24, 134);
+
+    // Section 3: Vendor
+    doc.setFillColor(248, 250, 252);
+    doc.rect(20, 144, 170, 26, "F");
+    doc.setFont("Helvetica", "bold");
+    doc.text("APPROVED VENDOR ENGAGEMENT", 24, 150);
+    doc.setFont("Helvetica", "normal");
+    doc.text(`Authorized Vendor: ${winQuote?.vendorName || "TBD"}`, 24, 156);
+    doc.text(`Agreed Rate: ${winQuote?.amount || 0} ${winQuote?.currency || "INR"}`, 24, 162);
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text("Disclaimer: This is a secure system-generated Work Order from the Hemraj Group. Vendor billing must match these rates.", 20, 270);
+
+    const pdfBase64 = doc.output("datauristring").split(",")[1];
+
     const workOrderPayload = {
       cardId: selectedCard.id,
       indentId: selectedCard.indentId,
@@ -1215,7 +1285,10 @@ export default function JobCardManager({
       luggageAllowance: localIndent?.luggage || "Standard / None",
       trainPreferredClass: traveler?.train_preferred_class || "N/A",
       trainBerthPreference: traveler?.train_berth_preference || "N/A",
-      trainMealPreference: traveler?.train_meal_preference || "N/A"
+      trainMealPreference: traveler?.train_meal_preference || "N/A",
+      
+      // PDF attachment
+      workOrderPdfBase64: pdfBase64
     };
 
     setSendingWorkOrder(true);

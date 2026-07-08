@@ -752,6 +752,8 @@ export async function sendWorkOrder(req: AuthenticatedRequest, res: Response) {
 
     const ok = await N8nService.sendWorkOrderWebhook({
       workOrder,
+      workOrderPdfBase64: workOrder.workOrderPdfBase64 || null,
+      pdfFileName: `WorkOrder_${workOrder.cardId}.pdf`,
       sentAt: new Date().toISOString()
     });
 
