@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plane, Calendar, Info, Loader2, CheckCircle2, AlertCircle, Database, ChevronRight, Bot, Sparkles } from "lucide-react";
+import { Plane, Calendar, Info, Loader2, CheckCircle2, AlertCircle, Database, ChevronRight, Bot, Sparkles, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface Flight {
@@ -35,6 +35,13 @@ export default function FlightSearchHub({ forexRates }: FlightSearchHubProps) {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [searchMethod, setSearchMethod] = useState("");
   const [errorText, setErrorText] = useState("");
+  
+  // Filters and Comparison states
+  const [stopFilter, setStopFilter] = useState<"ALL" | "0" | "1">("ALL");
+  const [airlineFilter, setAirlineFilter] = useState("ALL");
+  const [maxPriceFilter, setMaxPriceFilter] = useState<number>(10000);
+  const [compareFlightIds, setCompareFlightIds] = useState<string[]>([]);
+  const [showCompareModal, setShowCompareModal] = useState(false);
 
   const [currency, setCurrency] = useState<"INR" | "USD" | "EUR" | "AUD" | "NGN" | "VND">("USD");
   const [hoveredFlightId, setHoveredFlightId] = useState<string | null>(null);
@@ -180,11 +187,25 @@ export default function FlightSearchHub({ forexRates }: FlightSearchHubProps) {
     return Object.entries(map).sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime());
   }, [flights, activeTab]);
 
+  const uniqueAirlines = React.useMemo(() => {
+    const set = new Set<string>();
+    flights.forEach(f => {
+      if (f.airline) set.add(f.airline);
+    });
+    return Array.from(set).sort();
+  }, [flights]);
+
   const filteredFlights = React.useMemo(() => {
     const onDate = flights.filter(f => {
       const isDuffel = f.sourceApi === "duffel" || f.id?.startsWith("DF-") || f.currency === "USD";
       const matchTab = activeTab === "duffel" ? isDuffel : !isDuffel;
-      return f.date === selectedDate && matchTab;
+      
+      // Apply filters
+      if (f.date !== selectedDate || !matchTab) return false;
+      if (stopFilter !== "ALL" && f.stops.toString() !== stopFilter) return false;
+      if (airlineFilter !== "ALL" && f.airline !== airlineFilter) return false;
+      if (f.price > maxPriceFilter) return false;
+      return true;
     });
 
     const getDurationMinutes = (durationStr: string) => {
@@ -220,7 +241,7 @@ export default function FlightSearchHub({ forexRates }: FlightSearchHubProps) {
       }
       return 0;
     });
-  }, [flights, selectedDate, activeTab, sortBy, aiPick]);
+  }, [flights, selectedDate, activeTab, sortBy, aiPick, stopFilter, airlineFilter, maxPriceFilter]);
 
   const formatDisplayDate = (dStr: string) => {
     try {
@@ -344,6 +365,60 @@ export default function FlightSearchHub({ forexRates }: FlightSearchHubProps) {
                 )}
               </button>
             </form>
+
+            {/* Live Result Filters */}
+            {searched && (
+              <div className="pt-5 border-t border-slate-200 mt-5 space-y-4">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Live Filters</span>
+                
+                <div>
+                  <label className="block text-[9px] font-black text-slate-450 uppercase tracking-widest mb-1.5">Max Stops</label>
+                  <select
+                    value={stopFilter}
+                    onChange={e => setStopFilter(e.target.value as any)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer"
+                  >
+                    <option value="ALL">Show All Stops</option>
+                    <option value="0">Non-stop Only</option>
+                    <option value="1">Max 1 Stop</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-455 uppercase tracking-widest mb-1.5">Airlines</label>
+                  <select
+                    value={airlineFilter}
+                    onChange={e => setAirlineFilter(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none cursor-pointer"
+                  >
+                    <option value="ALL">All Airlines</option>
+                    {uniqueAirlines.map(airline => (
+                      <option key={airline} value={airline}>{airline}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-455 uppercase tracking-widest mb-1.5 flex justify-between">
+                    <span>Max Fare Limit</span>
+                    <span className="text-orange-600 font-black font-mono">${maxPriceFilter}</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="100"
+                    max="10000"
+                    step="50"
+                    value={maxPriceFilter}
+                    onChange={e => setMaxPriceFilter(Number(e.target.value))}
+                    className="w-full accent-orange-650 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[8px] font-bold text-slate-400 font-mono mt-1">
+                    <span>$100</span>
+                    <span>$10,000</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Integration Status Footer */}
             <div className="pt-4 border-t border-slate-200 mt-4 space-y-2">
@@ -586,7 +661,29 @@ export default function FlightSearchHub({ forexRates }: FlightSearchHubProps) {
                               AI Recommended Best Pick
                             </div>
                           )}
-                          {/* Airline info */}
+                           {/* Compare Checkbox Selection */}
+                           <div className="flex items-center gap-2 select-none absolute top-4 right-4 md:relative md:top-auto md:right-auto shrink-0 z-10">
+                             <input
+                               type="checkbox"
+                               checked={compareFlightIds.includes(flight.id)}
+                               onChange={(e) => {
+                                 if (e.target.checked) {
+                                   if (compareFlightIds.length >= 3) {
+                                     alert("You can compare up to 3 flights at once.");
+                                     return;
+                                   }
+                                   setCompareFlightIds(prev => [...prev, flight.id]);
+                                 } else {
+                                   setCompareFlightIds(prev => prev.filter(id => id !== flight.id));
+                                 }
+                               }}
+                               className="w-4.5 h-4.5 accent-blue-600 rounded cursor-pointer"
+                               title="Select to compare side-by-side"
+                             />
+                             <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block md:hidden">Compare</span>
+                           </div>
+
+                           {/* Airline info */}
                           <div className="flex items-center gap-4 w-full md:w-auto text-left">
                             <div className="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 font-black text-sm shrink-0">
                               {flight.airline.substring(0, 2).toUpperCase()}
@@ -753,6 +850,134 @@ export default function FlightSearchHub({ forexRates }: FlightSearchHubProps) {
           </AnimatePresence>
         </section>
       </div>
+
+      {compareFlightIds.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 animate-bounce">
+          <button
+            type="button"
+            onClick={() => setShowCompareModal(true)}
+            className="px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-black text-xs uppercase tracking-widest shadow-2xl transition duration-155 flex items-center gap-2 cursor-pointer border border-blue-500"
+          >
+            <Bot className="w-4 h-4" />
+            <span>Compare Selected ({compareFlightIds.length}/3)</span>
+          </button>
+        </div>
+      )}
+
+      {showCompareModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-[60] animate-fade-in">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white border-2 border-slate-950 rounded-3xl p-6 w-full max-w-4xl max-h-[85vh] overflow-y-auto shadow-2xl relative text-left"
+          >
+            <div className="flex justify-between items-center pb-4 border-b border-slate-150 mb-6">
+              <h3 className="text-lg font-black uppercase tracking-tighter text-slate-900 flex items-center gap-2">
+                <Plane className="w-5 h-5 text-orange-600 animate-pulse" />
+                Flight Comparison Matrix
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowCompareModal(false)}
+                className="text-slate-450 hover:text-slate-900 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="p-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Details</th>
+                    {compareFlightIds.map(id => {
+                      const f = flights.find(fl => fl.id === id);
+                      return (
+                        <th key={id} className="p-3 text-left text-xs font-black text-slate-800 uppercase tracking-tight min-w-[200px]">
+                          {f?.airline} ({f?.flightNumber})
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-700">
+                  <tr>
+                    <td className="p-3 text-slate-400 font-black uppercase text-[9px] tracking-wider">Airline</td>
+                    {compareFlightIds.map(id => {
+                      const f = flights.find(fl => fl.id === id);
+                      return <td key={id} className="p-3">{f?.airline}</td>;
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-slate-400 font-black uppercase text-[9px] tracking-wider">Flight Number</td>
+                    {compareFlightIds.map(id => {
+                      const f = flights.find(fl => fl.id === id);
+                      return <td key={id} className="p-3 font-mono">{f?.flightNumber}</td>;
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-slate-400 font-black uppercase text-[9px] tracking-wider">Departure</td>
+                    {compareFlightIds.map(id => {
+                      const f = flights.find(fl => fl.id === id);
+                      return <td key={id} className="p-3 font-mono">{f?.departureTime}</td>;
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-slate-400 font-black uppercase text-[9px] tracking-wider">Arrival</td>
+                    {compareFlightIds.map(id => {
+                      const f = flights.find(fl => fl.id === id);
+                      return <td key={id} className="p-3 font-mono">{f?.arrivalTime}</td>;
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-slate-400 font-black uppercase text-[9px] tracking-wider">Duration</td>
+                    {compareFlightIds.map(id => {
+                      const f = flights.find(fl => fl.id === id);
+                      return <td key={id} className="p-3">{f?.duration}</td>;
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-slate-400 font-black uppercase text-[9px] tracking-wider">Stops</td>
+                    {compareFlightIds.map(id => {
+                      const f = flights.find(fl => fl.id === id);
+                      return <td key={id} className="p-3 font-mono">{f?.stops === 0 ? "Non-stop" : `${f?.stops} stops`}</td>;
+                    })}
+                  </tr>
+                  <tr className="bg-slate-50/50">
+                    <td className="p-3 text-slate-400 font-black uppercase text-[9px] tracking-wider">Price (Selected Currency)</td>
+                    {compareFlightIds.map(id => {
+                      const f = flights.find(fl => fl.id === id);
+                      return (
+                        <td key={id} className="p-3 text-base font-black text-emerald-600 font-mono">
+                          {currencySymbols[currency]}{f ? convertPrice(f.price) : "0"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setCompareFlightIds([])}
+                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer"
+              >
+                Clear Selection
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCompareModal(false)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer"
+              >
+                Close Matrix
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -189,8 +189,8 @@ function VerificationTool({ card, quotes, winningQuote, onUpdateJobCard }: { car
   };
 
   return (
-    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-      <div className="flex justify-between items-center mb-6">
+    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 text-left">
+      <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
         <div>
           <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter">{card.travelerName} - Invoice Match</h2>
           <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">{card.id}</p>
@@ -200,122 +200,146 @@ function VerificationTool({ card, quotes, winningQuote, onUpdateJobCard }: { car
         </div>
       </div>
 
-      {/* 3-Way Match */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-          <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">1. Approved Quote</div>
-          <div className="text-lg font-black text-slate-900">₹ {qAmount.toLocaleString('en-IN')}</div>
-          <div className="text-xs text-slate-500 mt-1 truncate">{winningQuote?.vendorName || 'Not Set'}</div>
-        </div>
-        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-          <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">2. Actual Booking</div>
-          <div className="text-lg font-black text-slate-900">₹ {bAmount.toLocaleString('en-IN')}</div>
-          <div className="text-xs text-slate-500 mt-1 truncate">{card.bookingVendor || 'Not Set'}</div>
-        </div>
-        <div className={`p-4 rounded-xl border-2 ${isHighVariance ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'}`}>
-          <div className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isHighVariance ? 'text-rose-600' : 'text-emerald-600'}`}>3. Vendor Invoice</div>
-          <div className={`text-lg font-black ${isHighVariance ? 'text-rose-600' : 'text-emerald-700'}`}>₹ {iAmount.toLocaleString('en-IN')}</div>
-          <div className="text-xs font-semibold mt-1 flex justify-between">
-            <span className={isHighVariance ? 'text-rose-500' : 'text-emerald-600'}>{card.airlineGstVendorName || card.bookingVendor}</span>
-            <span className={isHighVariance ? 'text-rose-600 font-black' : 'text-emerald-600 font-bold'}>{variancePct > 0 ? '+' : ''}{variancePct.toFixed(1)}%</span>
-          </div>
-        </div>
-      </div>
-
-      {isHighVariance && (
-        <div className="mb-6 bg-rose-50 border border-rose-100 p-4 rounded-xl">
-          <label className="block text-xs font-black text-rose-800 uppercase tracking-widest mb-2">High Variance Reason (&gt; 5%) *</label>
-          <textarea
-            value={varianceReason}
-            onChange={(e) => setVarianceReason(e.target.value)}
-            disabled={card.financeCleared}
-            className="w-full bg-white border border-rose-200 rounded-lg p-3 text-sm focus:border-rose-400 outline-none"
-            rows={2}
-            placeholder="Please justify this extra cost before proceeding..."
-          />
-        </div>
-      )}
-
-      {/* Compliance Checklist */}
-      <div className="mb-8 border border-slate-200 rounded-2xl overflow-hidden">
-        <div className="bg-slate-50 px-5 py-3 border-b border-slate-200">
-          <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-orange-500" />
-            Compliance & GST Validation
-          </h3>
-        </div>
-        <div className="p-5 space-y-4">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" checked={gstChecked} onChange={(e) => setGstChecked(e.target.checked)} disabled={card.financeCleared} className="w-5 h-5 accent-orange-500 rounded" />
-            <div>
-              <span className="block text-sm font-bold text-slate-800">GST Registration & Tax Check</span>
-              <span className="block text-xs text-slate-500 mt-0.5">Vendor GST Matches records. Taxable Amount, CGST, SGST, IGST totals are calculated correctly.</span>
-            </div>
-          </label>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left">
+        {/* Left column: Audit fields */}
+        <div className={card.ticketVendorInvoiceUrl || card.airlineGstInvoiceUrl ? "lg:col-span-7 space-y-6" : "lg:col-span-12 space-y-6"}>
           
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" checked={physicalCopy} onChange={(e) => setPhysicalCopy(e.target.checked)} disabled={card.financeCleared} className="w-5 h-5 accent-orange-500 rounded" />
-            <div>
-              <span className="block text-sm font-bold text-slate-800">Received Physical Copy</span>
-              <span className="block text-xs text-slate-500 mt-0.5">Physical invoice has been received and verified by finance team members.</span>
+          {/* 3-Way Match */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">1. Approved Quote</div>
+              <div className="text-lg font-black text-slate-900">₹ {qAmount.toLocaleString('en-IN')}</div>
+              <div className="text-xs text-slate-500 mt-1 truncate font-bold">{winningQuote?.vendorName || 'Not Set'}</div>
             </div>
-          </label>
-        </div>
-      </div>
-
-      {(!card.financeCleared || card.paymentStatus !== 'PAID') && (
-        <div className="flex justify-end gap-3 mb-6 pb-6 border-b border-slate-100">
-          {!card.financeCleared && (
-            <button
-              onClick={handleMarkAsReady}
-              className="bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest px-6 py-3 rounded-xl shadow-lg flex items-center gap-2"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              Mark as Cleared / Ready for Payment
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Payment Processing Section */}
-      {(card.paymentStatus === 'READY' || card.paymentStatus === 'PAID') && (
-        <div className="bg-emerald-50 border-2 border-emerald-100 rounded-2xl p-5 mb-4">
-          <h3 className="text-xs font-black text-emerald-800 uppercase tracking-widest flex items-center gap-2 mb-4">
-            <Banknote className="w-4 h-4" />
-            Payment Processing
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-            <div>
-              <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Payment Mode</label>
-              <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value as any)} disabled={card.paymentStatus === 'PAID'} className="w-full text-xs font-bold p-2.5 rounded-lg border border-emerald-200 outline-none">
-                <option value="Bank Transfer">Bank Transfer</option>
-                <option value="Cheque">Cheque</option>
-                <option value="Credit Card">Credit Card</option>
-                <option value="Other">Other</option>
-              </select>
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">2. Actual Booking</div>
+              <div className="text-lg font-black text-slate-900">₹ {bAmount.toLocaleString('en-IN')}</div>
+              <div className="text-xs text-slate-500 mt-1 truncate font-bold">{card.bookingVendor || 'Not Set'}</div>
             </div>
-            <div>
-              <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Date</label>
-              <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} disabled={card.paymentStatus === 'PAID'} className="w-full text-xs font-bold p-2.5 rounded-lg border border-emerald-200 outline-none" />
-            </div>
-            <div>
-              <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Transaction Ref</label>
-              <input type="text" placeholder="e.g. UTR12345" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} disabled={card.paymentStatus === 'PAID'} className="w-full text-xs font-bold p-2.5 rounded-lg border border-emerald-200 outline-none" />
-            </div>
-            <div>
-              <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Equivalent INR Amt</label>
-              <input type="number" value={paymentINR} onChange={(e) => setPaymentINR(Number(e.target.value))} disabled={card.paymentStatus === 'PAID'} className="w-full text-xs font-bold p-2.5 rounded-lg border border-emerald-200 outline-none" />
+            <div className={`p-4 rounded-xl border-2 ${isHighVariance ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'}`}>
+              <div className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isHighVariance ? 'text-rose-600' : 'text-emerald-600'}`}>3. Vendor Invoice</div>
+              <div className={`text-lg font-black ${isHighVariance ? 'text-rose-600' : 'text-emerald-700'}`}>₹ {iAmount.toLocaleString('en-IN')}</div>
+              <div className="text-xs font-bold mt-1 flex justify-between">
+                <span className={isHighVariance ? 'text-rose-500' : 'text-emerald-600'}>{card.airlineGstVendorName || card.bookingVendor}</span>
+                <span className={isHighVariance ? 'text-rose-600 font-black' : 'text-emerald-600 font-bold'}>{variancePct > 0 ? '+' : ''}{variancePct.toFixed(1)}%</span>
+              </div>
             </div>
           </div>
-          
-          {card.paymentStatus !== 'PAID' && (
-            <button onClick={handleMarkAsPaid} className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-widest px-6 py-3 rounded-xl shadow-lg flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4" />
-              Mark as Paid
-            </button>
+
+          {isHighVariance && (
+            <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl">
+              <label className="block text-xs font-black text-rose-800 uppercase tracking-widest mb-2">High Variance Reason (&gt; 5%) *</label>
+              <textarea
+                value={varianceReason}
+                onChange={(e) => setVarianceReason(e.target.value)}
+                disabled={card.financeCleared}
+                className="w-full bg-white border border-rose-200 rounded-lg p-3 text-sm focus:border-rose-400 outline-none"
+                rows={2}
+                placeholder="Please justify this extra cost before proceeding..."
+              />
+            </div>
+          )}
+
+          {/* Compliance Checklist */}
+          <div className="border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="bg-slate-50 px-5 py-3 border-b border-slate-200">
+              <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-orange-500" />
+                Compliance & GST Validation
+              </h3>
+            </div>
+            <div className="p-5 space-y-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={gstChecked} onChange={(e) => setGstChecked(e.target.checked)} disabled={card.financeCleared} className="w-5 h-5 accent-orange-500 rounded cursor-pointer" />
+                <div>
+                  <span className="block text-sm font-bold text-slate-800">GST Registration & Tax Check</span>
+                  <span className="block text-xs text-slate-500 mt-0.5 font-semibold">Vendor GST Matches records. Taxable Amount, CGST, SGST, IGST totals are calculated correctly.</span>
+                </div>
+              </label>
+              
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={physicalCopy} onChange={(e) => setPhysicalCopy(e.target.checked)} disabled={card.financeCleared} className="w-5 h-5 accent-orange-500 rounded cursor-pointer" />
+                <div>
+                  <span className="block text-sm font-bold text-slate-800">Received Physical Copy</span>
+                  <span className="block text-xs text-slate-500 mt-0.5 font-semibold">Physical invoice has been received and verified by finance team members.</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          {(!card.financeCleared || card.paymentStatus !== 'PAID') && (
+            <div className="flex justify-end gap-3 border-b border-slate-100 pb-4">
+              {!card.financeCleared && (
+                <button
+                  onClick={handleMarkAsReady}
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Mark as Cleared / Ready for Payment
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Payment Processing Section */}
+          {(card.paymentStatus === 'READY' || card.paymentStatus === 'PAID') && (
+            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-5">
+              <h3 className="text-xs font-black text-emerald-800 uppercase tracking-widest flex items-center gap-2 mb-4">
+                <Banknote className="w-4 h-4" />
+                Payment Processing
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Payment Mode</label>
+                  <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value as any)} disabled={card.paymentStatus === 'PAID'} className="w-full text-xs font-bold p-2.5 rounded-lg border border-emerald-200 outline-none bg-white cursor-pointer">
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="Credit Card">Credit Card</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Date</label>
+                  <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} disabled={card.paymentStatus === 'PAID'} className="w-full text-xs font-bold p-2.5 rounded-lg border border-emerald-200 outline-none bg-white" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Transaction Ref</label>
+                  <input type="text" placeholder="e.g. UTR12345" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} disabled={card.paymentStatus === 'PAID'} className="w-full text-xs font-bold p-2.5 rounded-lg border border-emerald-200 outline-none bg-white" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-1">Equivalent INR Amt</label>
+                  <input type="number" value={paymentINR} onChange={(e) => setPaymentINR(Number(e.target.value))} disabled={card.paymentStatus === 'PAID'} className="w-full text-xs font-bold p-2.5 rounded-lg border border-emerald-200 outline-none bg-white" />
+                </div>
+              </div>
+              
+              {card.paymentStatus !== 'PAID' && (
+                <button onClick={handleMarkAsPaid} className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-widest px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 cursor-pointer">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Mark as Paid
+                </button>
+              )}
+            </div>
           )}
         </div>
-      )}
+
+        {/* Right Side: Document Viewer */}
+        {(card.ticketVendorInvoiceUrl || card.airlineGstInvoiceUrl) && (
+          <div className="lg:col-span-5 bg-slate-900 rounded-3xl p-4 flex flex-col h-[650px] border border-slate-800">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Invoice / Receipt Document</span>
+            <div className="flex-grow rounded-xl overflow-hidden bg-slate-950 flex items-center justify-center relative">
+              {(card.ticketVendorInvoiceUrl || card.airlineGstInvoiceUrl)?.startsWith("data:application/pdf") || (card.ticketVendorInvoiceUrl || card.airlineGstInvoiceUrl)?.endsWith(".pdf") ? (
+                <iframe src={card.ticketVendorInvoiceUrl || card.airlineGstInvoiceUrl} className="w-full h-full border-none" title="Invoice Doc Preview" />
+              ) : (
+                <img src={card.ticketVendorInvoiceUrl || card.airlineGstInvoiceUrl} className="max-w-full max-h-full object-contain" alt="Invoice Preview" />
+              )}
+            </div>
+            <div className="mt-3 flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              <span className="truncate pr-4">Attached: {card.ticketVendorInvoiceName || card.airlineGstInvoiceName || "invoice.pdf"}</span>
+              <a href={card.ticketVendorInvoiceUrl || card.airlineGstInvoiceUrl} target="_blank" rel="noreferrer" className="text-orange-500 hover:underline shrink-0">Open Fullscreen</a>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

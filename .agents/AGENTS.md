@@ -29,3 +29,10 @@
 - [x] Verify step-by-step sequential lock rules in collapsed accordions
 - [x] Verify clean builds and compile type checks (`npx tsc --noEmit` → 0 errors)
 - [x] Verify production bundling succeeds (`npm run build` → success)
+
+## Phase 4: n8n Workflow Integration guidelines
+- **Search n8n templates before building from scratch**: Always try to leverage existing templates to save time.
+- **Explicitly configure every node parameter**: Do not rely on defaults; always configure parameters explicitly to prevent runtime failures.
+- **Validate nodes and workflow**: Validate individual nodes (`minimal` → `full`) and then validate the whole workflow before deploying.
+- **Batch updates**: Combine multiple edits into a single `n8n_update_partial_workflow` call to avoid excessive roundtrips.
+- **Attribute templates**: Properly attribute any external templates used (mention the author and link to the n8n.io page).

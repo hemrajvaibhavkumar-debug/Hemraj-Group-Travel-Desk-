@@ -13,4 +13,7 @@ router.get("/schema", requireAuth("VIEW_INDENTS"), IntegrationController.getDbSc
 router.get("/health", IntegrationController.checkHealth);
 router.post("/workorder/send", requireAuth("VIEW_INDENTS"), JobCardController.sendWorkOrder);
 
+router.get("/drive/auth", IntegrationController.redirectToGoogleAuth);
+router.get("/drive/callback", IntegrationController.handleGoogleCallback);
+
 export default router;

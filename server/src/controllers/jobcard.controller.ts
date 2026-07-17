@@ -2,6 +2,7 @@ import { Response } from "express";
 import { prisma } from "../../../src/db/prisma";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import * as N8nService from "../services/n8n.service";
+// DriveService removed in favor of n8n
 import { createNotificationInternal } from "./notification.controller";
 import { env } from "../config/env";
 import path from "path";
@@ -51,24 +52,25 @@ async function handleBase64Upload(
       resolvedFileName = `${typeLabel}_${context.jobCardId}_${safeVendorName}_${context.invoiceNo || "No"}${extension}`;
     }
 
-    console.log(`Intercepted inline base64 for JobCard ${context.jobCardId} (${category}). Uploading to Google Drive: ${folderPath}/${resolvedFileName}`);
-    const result = await N8nService.sendUploadWebhook({
+    console.log(`Intercepted inline base64 for JobCard ${context.jobCardId} (${category}). Uploading directly to Google Drive: ${folderPath}/${resolvedFileName}`);
+    // Route inline base64 upload directly through n8n upload webhook
+    console.log(`Routing inline base64 upload of "${fileName || resolvedFileName}" to n8n upload webhook.`);
+    const n8nResult = await N8nService.sendUploadWebhook({
       fileName: fileName || resolvedFileName,
       fileData: fieldValue,
       fileType: mimeType,
       documentCategory: category.toLowerCase(),
-      folderPath,
-      resolvedFileName
+      folderPath
     });
 
-    if (result.success && result.url) {
-      console.log(`Successfully uploaded. Google Drive URL: ${result.url}`);
-      return result.url;
+    if (n8nResult.success && n8nResult.url) {
+      console.log(`Successfully uploaded via n8n upload webhook. URL: ${n8nResult.url}`);
+      return n8nResult.url;
     } else {
       // Fallback relative URL
       const cleanName = (fileName || resolvedFileName).replace(/[^a-zA-Z0-9.\-_]/g, "_");
       const relativeUrl = `/uploads/${Date.now()}_${cleanName}`;
-      console.warn(`Webhook failed or unconfigured, returning local fallback: ${relativeUrl}`);
+      console.warn(`n8n upload webhook failed, returning local fallback: ${relativeUrl}`);
       return relativeUrl;
     }
   } catch (err: any) {
@@ -115,6 +117,9 @@ function mapJobCardToFrontend(dbJobCard: any): any {
     ticketFileName: booking?.ticketFileName || null,
     ticketVendorInvoiceUrl: booking?.ticketVendorInvoiceUrl || null,
     ticketVendorInvoiceName: booking?.ticketVendorInvoiceName || null,
+    cancellationChargesReturn: booking?.cancellationChargesReturn || null,
+    cancellationReturnTicketUrl: booking?.cancellationReturnTicketUrl || null,
+    cancellationReturnTicketName: booking?.cancellationReturnTicketName || null,
     bookingRecordedAt: booking?.bookingRecordedAt || null,
 
     // Invoice Section
@@ -164,26 +169,39 @@ function mapJobCardToFrontend(dbJobCard: any): any {
 
 export async function getAllJobCards(req: AuthenticatedRequest, res: Response) {
   try {
-    const limit = parseInt(req.query.limit as string) || 1000;
+    const requestedLimit = parseInt(req.query.limit as string) || 50;
     const skip = parseInt(req.query.skip as string) || 0;
-    const jobCards = await prisma.jobCard.findMany({
-      include: {
-        quotes: true,
-        auditLogs: true,
-        booking: true,
-        invoice: true,
-        payment: true,
-        rescheduling: true,
-        indent: {
-          include: {
-            employee: true
+    
+    // Cap limit between 1 and 200
+    const finalLimit = Math.min(Math.max(requestedLimit, 1), 200);
+
+    // Fetch total job cards count and records in parallel to minimize DB connection latency
+    const [totalCount, jobCards] = await Promise.all([
+      prisma.jobCard.count(),
+      prisma.jobCard.findMany({
+        include: {
+          quotes: true,
+          auditLogs: true,
+          booking: true,
+          invoice: true,
+          payment: true,
+          rescheduling: true,
+          indent: {
+            include: {
+              employee: true
+            }
           }
-        }
-      },
-      orderBy: { created_at: "desc" },
-      take: limit,
-      skip: skip
-    });
+        },
+        orderBy: { created_at: "desc" },
+        take: finalLimit,
+        skip: skip
+      })
+    ]);
+
+    res.setHeader("X-Total-Count", totalCount.toString());
+    res.setHeader("X-Limit", finalLimit.toString());
+    res.setHeader("X-Skip", skip.toString());
+
     return res.json(jobCards.map(mapJobCardToFrontend));
   } catch (error: any) {
     return res.status(500).json({ error: "Failed to retrieve job cards: " + error.message });
@@ -304,7 +322,8 @@ export async function updateJobCard(req: AuthenticatedRequest, res: Response) {
 
     const bookingFields = [
       "bookingPNR", "bookingVendor", "finalBookingAmount", "bookingCurrency",
-      "ticketFileUrl", "ticketFileName", "ticketVendorInvoiceUrl", "ticketVendorInvoiceName", "bookingRecordedAt"
+      "ticketFileUrl", "ticketFileName", "ticketVendorInvoiceUrl", "ticketVendorInvoiceName", "bookingRecordedAt",
+      "cancellationChargesReturn", "cancellationReturnTicketUrl", "cancellationReturnTicketName"
     ];
     const invoiceFields = [
       "invoiceVendorAmount", "invoiceCurrency", "invoiceNumber", "gstDetailsCorrect",
@@ -473,6 +492,9 @@ export async function updateJobCard(req: AuthenticatedRequest, res: Response) {
               agentName: q.agentName,
               travelType: q.travelType,
               visaType: q.visaType,
+              cancellationChargesReturn: q.cancellationChargesReturn,
+              cancellationReturnTicketUrl: q.cancellationReturnTicketUrl,
+              cancellationReturnTicketName: q.cancellationReturnTicketName,
               selectedEmails: q.selectedEmails ? JSON.parse(JSON.stringify(q.selectedEmails)) : undefined,
               selectedPhones: q.selectedPhones ? JSON.parse(JSON.stringify(q.selectedPhones)) : undefined
             },
@@ -493,6 +515,9 @@ export async function updateJobCard(req: AuthenticatedRequest, res: Response) {
               agentName: q.agentName,
               travelType: q.travelType,
               visaType: q.visaType,
+              cancellationChargesReturn: q.cancellationChargesReturn,
+              cancellationReturnTicketUrl: q.cancellationReturnTicketUrl,
+              cancellationReturnTicketName: q.cancellationReturnTicketName,
               selectedEmails: q.selectedEmails ? JSON.parse(JSON.stringify(q.selectedEmails)) : undefined,
               selectedPhones: q.selectedPhones ? JSON.parse(JSON.stringify(q.selectedPhones)) : undefined
             }

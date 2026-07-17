@@ -8,8 +8,8 @@ import {
   Trash2, Edit3, Send, FileText, CheckCircle, Sparkles, 
   AlertTriangle, Upload, Eye, EyeOff, Clipboard, Play, 
   FileCheck, ShieldCheck, ArrowRight, UserCheck, DollarSign,
-  Paperclip, Download,
-  Coins, Activity, List, Kanban, AlertCircle, X
+  Paperclip, Download, Maximize2, Minimize2,
+  Coins, Activity, List, Kanban, AlertCircle, X, Check, Copy, Lock
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { usePersistedState } from "../hooks/usePersistedState";
@@ -58,6 +58,24 @@ export default function JobCardManager({
   const [jobCards, setJobCards] = useState<JobCard[]>(initialJobCards);
   const [selectedCard, setSelectedCard] = useState<JobCard | null>(null);
   const [profileEmployee, setProfileEmployee] = useState<Employee | null>(null);
+  const [fullscreenCompareTab, setFullscreenCompareTab] = useState<'QUOTATION' | 'APPROVAL' | null>(null);
+  const [stepWarning, setStepWarning] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    onConfirm: () => void;
+  } | null>(null);
+  const [showL1RejectReason, setShowL1RejectReason] = useState(false);
+  const [showL2RejectReason, setShowL2RejectReason] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [workOrderRemarks, setWorkOrderRemarks] = useState("");
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const {
     isLeftListCollapsed, setIsLeftListCollapsed,
@@ -1200,65 +1218,164 @@ export default function JobCardManager({
       format: "a4"
     });
 
+    // Top Brand Accent Bar
+    doc.setFillColor(249, 115, 22); // Orange Theme
+    doc.rect(0, 0, 210, 4, "F");
+
     // Header Branding
+    const logoImg = document.querySelector('img[alt="Hemraj Industries"]') as HTMLImageElement;
+    if (logoImg) {
+      try {
+        doc.addImage(logoImg, "PNG", 20, 8, 12, 12);
+      } catch (e) {
+        console.warn("Failed to add logo image to PDF: ", e);
+      }
+    }
+
     doc.setFont("Helvetica", "bold");
-    doc.setFontSize(18);
+    doc.setFontSize(16);
     doc.setTextColor(249, 115, 22); // Orange Theme
-    doc.text("HEMRAJ GROUP OF COMPANIES", 20, 20);
+    doc.text("HEMRAJ GROUP OF COMPANIES", logoImg ? 36 : 20, 15);
 
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text("Corporate Travel Operations Desk", 20, 25);
-    doc.setDrawColor(226, 232, 240);
-    doc.line(20, 28, 190, 28);
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139); // Slate-500
+    doc.text("Corporate Travel Operations Desk", logoImg ? 36 : 20, 20);
 
-    // Document Title
+    // Document Title (Right-aligned)
+    doc.setFont("Helvetica", "bold");
     doc.setFontSize(13);
-    doc.setTextColor(15, 23, 42);
-    doc.text("DIGITAL WORK ORDER", 20, 36);
+    doc.setTextColor(15, 23, 42); // Slate-900
+    doc.text("DIGITAL WORK ORDER", 190, 16, { align: "right" });
 
-    doc.setFontSize(9);
+    // Header divider line
+    doc.setDrawColor(226, 232, 240); // Slate-200
+    doc.setLineWidth(0.5);
+    doc.line(20, 25, 190, 25);
+
+    // Metadata section
     doc.setFont("Helvetica", "normal");
-    doc.text(`Reference ID: WO-${selectedCard.id}`, 20, 43);
-    doc.text(`Date of Issue: ${new Date().toLocaleDateString()}`, 140, 43);
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Reference ID: WO-${selectedCard.id}`, 20, 31);
+    doc.text(`Date of Issue: ${new Date().toLocaleDateString()}`, 190, 31, { align: "right" });
+
+    // Table drawing helpers
+    const drawSectionHeader = (title: string, y: number) => {
+      doc.setFillColor(241, 245, 249); // slate-100
+      doc.rect(20, y, 170, 7.5, "F");
+      doc.setDrawColor(203, 213, 225); // slate-300
+      doc.setLineWidth(0.25);
+      doc.rect(20, y, 170, 7.5, "S");
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42); // slate-900
+      doc.text(title, 24, y + 5);
+    };
+
+    const drawGridRow = (
+      key1: string, val1: string,
+      key2: string, val2: string,
+      y: number,
+      height: number = 7.5
+    ) => {
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.rect(20, y, 170, height, "S");
+      doc.line(105, y, 105, y + height); // Center divider line
+
+      // Col 1
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105); // slate-600
+      doc.text(key1, 24, y + height / 2 + 1);
+
+      doc.setFont("Helvetica", "normal");
+      doc.setTextColor(15, 23, 42); // slate-900
+      doc.text(val1, 55, y + height / 2 + 1);
+
+      // Col 2
+      doc.setFont("Helvetica", "bold");
+      doc.setTextColor(71, 85, 105);
+      doc.text(key2, 109, y + height / 2 + 1);
+
+      doc.setFont("Helvetica", "normal");
+      doc.setTextColor(15, 23, 42);
+      doc.text(val2, 140, y + height / 2 + 1);
+    };
+
+    const drawSpanningRow = (
+      key: string, val: string,
+      y: number,
+      minHeight: number = 7.5
+    ) => {
+      const maxTextWidth = 130;
+      const lines = doc.splitTextToSize(val, maxTextWidth);
+      const computedHeight = Math.max(minHeight, lines.length * 4.5 + 3);
+
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(20, y, 170, computedHeight, "S");
+
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(key, 24, y + 5);
+
+      doc.setFont("Helvetica", "normal");
+      doc.setTextColor(15, 23, 42);
+      doc.text(lines, 55, y + 5);
+
+      return computedHeight;
+    };
 
     // Section 1: Traveler
-    doc.setFillColor(248, 250, 252);
-    doc.rect(20, 48, 170, 32, "F");
-    doc.setFont("Helvetica", "bold");
-    doc.text("TRAVELER INFORMATION", 24, 54);
-    doc.setFont("Helvetica", "normal");
-    doc.text(`Name: ${selectedCard.travelerName}`, 24, 60);
-    doc.text(`Employee Code: ${localIndent?.employee_code || "N/A"}`, 24, 66);
-    doc.text(`Department: ${selectedCard.department || "N/A"}`, 24, 72);
-    doc.text(`Native/Base City: ${traveler?.native_city || "N/A"}`, 24, 78);
+    drawSectionHeader("1. TRAVELER PROFILE", 36);
+    drawGridRow("Traveler Name:", selectedCard.travelerName, "Employee Code:", localIndent?.employee_code || "N/A", 43.5);
+    drawGridRow("Department:", selectedCard.department || "N/A", "Base City:", traveler?.native_city || "N/A", 51);
 
-    // Section 2: Booking
-    doc.setFillColor(248, 250, 252);
-    doc.rect(20, 86, 170, 52, "F");
-    doc.setFont("Helvetica", "bold");
-    doc.text("BOOKING CONSTRAINTS & PREFERENCES", 24, 92);
-    doc.setFont("Helvetica", "normal");
-    doc.text(`Transport Mode: ${localIndent?.travel_type || "FLIGHT"}`, 24, 98);
-    doc.text(`Sector / Destination: ${selectedCard.destination}`, 24, 104);
-    doc.text(`Target Travel Date: ${winQuote?.travelDate || localIndent?.travel_date || "Immediate"}`, 24, 110);
-    doc.text(`Seat Preference: ${seatPref}`, 24, 116);
-    doc.text(`Meal Preference: ${mealPref}`, 24, 122);
-    doc.text(`Luggage Allowance: ${localIndent?.luggage || "Standard"}`, 24, 128);
-    doc.text(`Booking PNR Status: ${selectedCard.bookingPNR || "TBD"}`, 24, 134);
+    // Section 2: Booking Details
+    drawSectionHeader("2. JOURNEY CONSTRAINTS & PREFERENCES", 63.5);
+    drawGridRow("Transport Mode:", localIndent?.travel_type || "FLIGHT", "Sector / Route:", `${localIndent?.source_location || "N/A"} -> ${selectedCard.destination}`, 71);
+    drawGridRow("Travel Date:", winQuote?.travelDate || localIndent?.travel_date || "Immediate", "Booking PNR:", selectedCard.bookingPNR || "TBD", 78.5);
+    drawGridRow("Seat Preference:", seatPref, "Meal Preference:", mealPref, 86);
+    drawSpanningRow("Luggage details:", localIndent?.luggage || "Standard / None", 93.5);
 
-    // Section 3: Vendor
-    doc.setFillColor(248, 250, 252);
-    doc.rect(20, 144, 170, 26, "F");
-    doc.setFont("Helvetica", "bold");
-    doc.text("APPROVED VENDOR ENGAGEMENT", 24, 150);
-    doc.setFont("Helvetica", "normal");
-    doc.text(`Authorized Vendor: ${winQuote?.vendorName || "TBD"}`, 24, 156);
-    doc.text(`Agreed Rate: ${winQuote?.amount || 0} ${winQuote?.currency || "INR"}`, 24, 162);
+    // Section 3: Vendor Details
+    drawSectionHeader("3. COMMERCIALLY APPROVED QUOTATION", 106);
+    drawGridRow("Authorized Vendor:", winQuote?.vendorName || "TBD", "Agreed Rate:", `${winQuote?.amount || 0} ${winQuote?.currency || "INR"}`, 113.5);
 
+    let currentY = 126;
+    if (workOrderRemarks.trim()) {
+      drawSectionHeader("4. ADDITIONAL REMARKS / INSTRUCTIONS", currentY);
+      currentY += 7.5;
+      const rowH = drawSpanningRow("Remarks:", workOrderRemarks, currentY, 8);
+      currentY += rowH;
+      currentY += 5; // space
+    }
+
+    // System Validation Box
+    doc.setFillColor(254, 243, 199); // amber-100
+    doc.setDrawColor(245, 158, 11); // amber-500
+    doc.rect(20, currentY, 170, 24, "FD");
+
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(146, 64, 14); // amber-800
+    doc.text("SYSTEM AUTHORIZATION VALIDATION", 24, currentY + 6);
+
+    doc.setFont("Helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(180, 83, 9); // amber-700
+    doc.text(`Commercial VP Approval By: ${selectedCard.commercialApprovedBy || "VP Commercial Admin"}`, 24, currentY + 12);
+    doc.text(`Authorized Timestamp: ${selectedCard.commercialApprovedAt ? new Date(selectedCard.commercialApprovedAt).toLocaleString() : new Date().toLocaleString()}`, 24, currentY + 18);
+
+    doc.setFont("Helvetica", "bold");
+    doc.setTextColor(22, 101, 52); // green-800
+    doc.text("STATUS: SIGNED & APPROVED", 186, currentY + 12, { align: "right" });
+
+    // Footer Disclaimer
+    doc.setFont("Helvetica", "normal");
     doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text("Disclaimer: This is a secure system-generated Work Order from the Hemraj Group. Vendor billing must match these rates.", 20, 270);
+    doc.setTextColor(148, 163, 184); // slate-400
+    doc.text("Disclaimer: This is a secure system-generated Work Order from the Hemraj Group. Vendor billing must match these rates.", 20, 275);
 
     const pdfBase64 = doc.output("datauristring").split(",")[1];
 
@@ -1268,6 +1385,7 @@ export default function JobCardManager({
       travelerName: selectedCard.travelerName,
       travelerCode: localIndent?.employee_code || "N/A",
       destination: selectedCard.destination,
+      source: localIndent?.source_location || "N/A",
       travelDate: winQuote?.travelDate || localIndent?.travel_date || "Immediate",
       approvedVendor: winQuote?.vendorName || "TBD",
       amount: winQuote?.amount || 0,
@@ -1277,6 +1395,7 @@ export default function JobCardManager({
       selectedPhones: winQuote?.selectedPhones || [],
       authorizedBy: selectedCard.commercialApprovedBy || "VP Commercial Admin",
       authorizedAt: selectedCard.commercialApprovedAt || new Date().toISOString(),
+      remarks: workOrderRemarks,
       
       // Enriched travel specifics
       travelType: localIndent?.travel_type || "FLIGHT",
@@ -1338,7 +1457,7 @@ export default function JobCardManager({
     const dateStr = selectedCard.commercialApprovedAt ? new Date(selectedCard.commercialApprovedAt).toLocaleDateString() : new Date().toLocaleDateString();
     const travelerName = selectedCard.travelerName;
     const travelerCode = localIndent?.employee_code || "N/A";
-    const destination = selectedCard.destination;
+    const routeStr = `${localIndent?.source_location || "N/A"} -> ${selectedCard.destination}`;
     const travelDate = winQuote?.travelDate || localIndent?.travel_date || "Immediate";
     const approvedVendor = winQuote?.vendorName || "TBD";
     const amountStr = winQuote ? `${winQuote.amount} ${winQuote.currency}` : "N/A";
@@ -1522,7 +1641,7 @@ export default function JobCardManager({
                 </tr>
                 <tr>
                   <th>Sector / Route</th>
-                  <td>${destination}</td>
+                  <td>${routeStr}</td>
                 </tr>
                 <tr>
                   <th>Expected Travel Date</th>
@@ -1607,6 +1726,13 @@ export default function JobCardManager({
                 })()}
               </tbody>
             </table>
+
+            ${workOrderRemarks.trim() ? `
+              <h5 style="margin-top: 24px; margin-bottom: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569;">Additional Remarks & Instructions</h5>
+              <div style="border: 1px solid #e2e8f0; padding: 12px 16px; border-radius: 12px; font-size: 12px; color: #0f172a; font-weight: 700; margin-bottom: 24px; background-color: #f8fafc; text-transform: uppercase;">
+                ${workOrderRemarks.replace(/\n/g, '<br/>')}
+              </div>
+            ` : ""}
 
             <div class="directive-box">
               NOTE: Booking execution and ticket issuance should only be processed when the official Work Order has been dispatched from official corporate email domains.
@@ -1742,6 +1868,208 @@ export default function JobCardManager({
   const top3QuoteIds = useMemo(() => {
     return sortedQuotes.slice(0, 3).map(q => q.id);
   }, [sortedQuotes]);
+
+  const renderComparisonTable = (mode: 'QUOTATION' | 'APPROVAL', isFullscreen: boolean = false) => {
+    if (!selectedCard?.quotes || selectedCard.quotes.length === 0) {
+      return (
+        <div className="p-12 text-center border-2 border-dashed border-slate-200 rounded-[2rem] bg-slate-50/50">
+          <HelpCircle className="w-10 h-10 text-slate-350 mx-auto mb-3" />
+          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">No Quotations Logged</h4>
+          <p className="text-[10px] text-slate-450 font-bold uppercase">Submit a proposal to see the comparison matrix.</p>
+        </div>
+      );
+    }
+
+    const isCardVoided = selectedCard.voided || (indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId)?.voided || false);
+
+    return (
+      <div className="bg-white border border-slate-250 rounded-3xl overflow-hidden shadow-xs relative">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs font-semibold text-slate-700">
+            <thead>
+              <tr className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest border-b border-slate-800">
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">ID</th>
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">Rank</th>
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">Vendor</th>
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">Agent</th>
+                {mode === 'QUOTATION' && <th className="px-4 py-4.5 border-r border-slate-800 text-white">Type</th>}
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">Airline</th>
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">Sector</th>
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">Layover</th>
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">Travel Date</th>
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">Raw Cost</th>
+                <th className="px-4 py-4.5 border-r border-slate-800 text-white">INR Equivalent</th>
+                {isCardVoided && (
+                  <>
+                    <th className="px-4 py-4.5 border-r border-slate-800 text-white">Ret. Cancel Cost</th>
+                    <th className="px-4 py-4.5 border-r border-slate-800 text-white">Cxl Ticket</th>
+                  </>
+                )}
+                <th className="px-4 py-4.5 text-center text-white">Selection Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-bold uppercase text-[11px] text-slate-800">
+              {selectedCard.quotes.map(q => {
+                const isWinning = selectedCard.winningQuoteId === q.id;
+                const lowestIdx = top3QuoteIds.indexOf(q.id);
+                const isCheapest = lowestIdx === 0;
+                const lRank = lowestIdx !== -1 ? `L${lowestIdx + 1}` : null;
+                const inrVal = convertToINR(q.amount, q.currency);
+
+                return (
+                  <tr key={q.id} className={`transition-colors ${isWinning ? "bg-emerald-50/40" : isCheapest ? "bg-orange-50/10" : "hover:bg-slate-50/50"}`}>
+                    {/* ID */}
+                    <td className="px-4 py-4 border-r border-slate-100 font-mono text-[10px] text-slate-400">
+                      {q.id}
+                    </td>
+
+                    {/* Rank (L1, L2, L3) */}
+                    <td className="px-4 py-4 border-r border-slate-100">
+                      {lRank ? (
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wider ${
+                          lRank === 'L1' ? 'bg-emerald-600 text-white' : 
+                          lRank === 'L2' ? 'bg-blue-600 text-white' : 
+                          'bg-slate-600 text-white'
+                        }`}>
+                          {lRank}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 font-black">—</span>
+                      )}
+                    </td>
+
+                    {/* Vendor */}
+                    <td className="px-4 py-4 border-r border-slate-100 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-black text-slate-900">{q.vendorName}</span>
+                        {isWinning && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Selected" />}
+                        {isCheapest && <div className="w-1.5 h-1.5 rounded-full bg-orange-500" title="Lowest L1" />}
+                      </div>
+                    </td>
+
+                    {/* Agent */}
+                    <td className="px-4 py-4 border-r border-slate-100 whitespace-nowrap">{q.agentName || "Direct"}</td>
+
+                    {/* Type */}
+                    {mode === 'QUOTATION' && (
+                      <td className="px-4 py-4 border-r border-slate-100 whitespace-nowrap">
+                        {q.travelType || "FLIGHT"} {q.visaType ? `(${q.visaType})` : ""}
+                      </td>
+                    )}
+
+                    {/* Airline */}
+                    <td className="px-4 py-4 border-r border-slate-100 whitespace-nowrap">{q.airline || "Direct"}</td>
+
+                    {/* Sector */}
+                    <td className="px-4 py-4 border-r border-slate-100 whitespace-nowrap">{q.sector || selectedCard.destination || "N/A"}</td>
+
+                    {/* Layover */}
+                    <td className="px-4 py-4 border-r border-slate-100">{q.layover || "0"} Hours</td>
+
+                    {/* Travel Date */}
+                    <td className="px-4 py-4 border-r border-slate-100 whitespace-nowrap">{q.travelDate || "Immediate"}</td>
+
+                    {/* Raw Cost */}
+                    <td className="px-4 py-4 border-r border-slate-100 font-mono">{q.amount} {q.currency}</td>
+
+                    {/* INR Equivalent */}
+                    <td className="px-4 py-4 border-r border-slate-100 font-mono text-slate-900">
+                      ₹{inrVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                    </td>
+
+                    {/* Cancel cost if voided */}
+                    {isCardVoided && (
+                      <>
+                        <td className="px-4 py-4 border-r border-slate-100 font-mono">
+                          {q.cancellationChargesReturn !== undefined ? `₹${q.cancellationChargesReturn}` : "—"}
+                        </td>
+                        <td className="px-4 py-4 border-r border-slate-100">
+                          {q.cancellationReturnTicketUrl ? (
+                            <a href={q.cancellationReturnTicketUrl} target="_blank" rel="noreferrer" className="text-rose-600 hover:underline font-black text-[10px]" title={q.cancellationReturnTicketName || "View"}>
+                              View copy
+                            </a>
+                          ) : "—"}
+                        </td>
+                      </>
+                    )}
+
+                    {/* Selection Actions */}
+                    <td className="px-4 py-4">
+                      {mode === 'QUOTATION' ? (
+                        <div className="flex items-center justify-center gap-1">
+                          {q.quoteFileUrl && (
+                            <a href={q.quoteFileUrl} target="_blank" rel="noreferrer" className="w-8 h-8 border border-slate-200 flex items-center justify-center rounded-xl text-slate-900 hover:text-orange-600 hover:border-orange-500 transition bg-white" title="View Document">
+                              <FileText className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                          <button onClick={() => handleEditQuote(q)} className="w-8 h-8 bg-white border border-slate-200 text-slate-900 hover:text-slate-950 hover:border-slate-950 flex items-center justify-center rounded-xl transition cursor-pointer" title="Edit">
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setConfirmModal({
+                                title: "Delete Quotation",
+                                message: `Are you sure you want to delete the quote from '${q.vendorName}' (${q.amount} ${q.currency})? This action is permanent and cannot be undone.`,
+                                confirmText: "Delete Quote",
+                                onConfirm: () => handleDeleteQuote(q.id)
+                              });
+                            }}
+                            className="w-8 h-8 bg-rose-50 border border-rose-200 text-rose-600 hover:text-rose-700 hover:bg-rose-100 flex items-center justify-center rounded-xl transition cursor-pointer"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center">
+                          {isWinning ? (
+                            <div className="flex flex-col items-center gap-1 w-full">
+                              <span className="bg-emerald-600 text-white w-full py-1.5 rounded-lg text-[9px] font-black tracking-widest text-center shadow-2xs select-none">✓ SELECTED</span>
+                              {hasPermission("SELECT_WINNING_BID") && selectedCard.commercialApprovalStatus !== 'APPROVED' && (
+                                <button
+                                  onClick={() => {
+                                    setConfirmModal({
+                                      title: "Deselect Quote",
+                                      message: `Are you sure you want to deselect '${q.vendorName}'? This will reopen the bidding phase for this card.`,
+                                      confirmText: "Deselect",
+                                      onConfirm: () => handleSelectWinningQuote({ ...q, id: "" } as any) // passing an empty quote resets it
+                                    });
+                                  }}
+                                  className="text-[8px] text-rose-500 hover:text-rose-700 font-black uppercase tracking-wider underline cursor-pointer bg-transparent border-none"
+                                >
+                                  Deselect
+                                </button>
+                              )}
+                            </div>
+                          ) : hasPermission("SELECT_WINNING_BID") && selectedCard.commercialApprovalStatus !== 'APPROVED' ? (
+                            <button
+                              onClick={() => {
+                                setConfirmModal({
+                                  title: "Confirm Winning Bid",
+                                  message: `Are you sure you want to select '${q.vendorName}' (${q.amount} ${q.currency}) as the winning bid? This will freeze selection and forward this card for department clearance.`,
+                                  confirmText: "Confirm Selection",
+                                  onConfirm: () => handleSelectWinningQuote(q)
+                                });
+                              }}
+                              className="w-full py-1.5 bg-slate-900 hover:bg-orange-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition active:scale-95 shadow-sm cursor-pointer"
+                            >
+                              Select Quote
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 font-black">—</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
 
   const pollScanJob = async (jobId: string): Promise<any> => {
     return new Promise((resolve, reject) => {
@@ -3028,8 +3356,22 @@ export default function JobCardManager({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="h-[calc(100vh-150px)] overflow-y-auto pr-2 text-left"
+                className="h-[calc(100vh-150px)] overflow-y-auto pr-2 text-left relative"
               >
+                {/* Step Warning Toast Banner */}
+                <AnimatePresence>
+                  {stepWarning && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-rose-600 border border-rose-700 text-white font-sans font-black text-xs uppercase tracking-widest px-6 py-3.5 rounded-2xl shadow-xl flex items-center gap-2 select-none"
+                    >
+                      <AlertCircle className="w-4 h-4 shrink-0 text-white" />
+                      <span>{stepWarning}</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 {/* WORKSPACE HEADER */}
                 <div className="bg-slate-900 px-8 py-7 text-white flex justify-between items-center gap-6 rounded-t-3xl shadow-sm">
                   <div className="flex items-center gap-5">
@@ -3299,101 +3641,7 @@ export default function JobCardManager({
                   );
                 })()}
 
-                {/* STRAY MULTI-STEP PROGRESS TIMELINE */}
-                {(() => {
-                  const cardStageOrder = ['QUOTATION', 'APPROVAL', 'BOOKING', 'FINANCE', 'RECONCILIATION', 'CLOSED'] as const;
-                  const currentIdx = cardStageOrder.indexOf(selectedCard.stage as any);
-                  const isCancelled = selectedCard.isCancelled;
 
-                  const stepperSteps = [
-                    { key: 'QUOTATION', label: 'RFQs / Bids', desc: 'Sourcing quotes' },
-                    { key: 'APPROVAL', label: 'Approved', desc: 'Approval loop' },
-                    { key: 'BOOKING', label: 'Ticket Booked', desc: 'Record local PNR' },
-                    { key: 'FINANCE', label: 'Finance Verified', desc: 'Payment evaluation' },
-                    { key: 'RECONCILIATION', label: 'Audited', desc: 'Close loop clearing' }
-                  ];
-
-                  return (
-                    <div className="bg-slate-50 p-6 border-x border-b border-slate-205 rounded-b-3xl shadow-2xs">
-                      <div className="flex justify-between items-center mb-5">
-                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest block font-sans">
-                          Job Card Workflow Tracker ({selectedCard.isCancelled ? "Terminated" : "Stage " + (currentIdx + 1) + " of 6"})
-                        </span>
-                        {isCancelled ? (
-                          <span className="px-2 py-0.5 bg-rose-600 text-white rounded text-[8px] font-black uppercase tracking-wider animate-pulse">
-                            ✕ Cancelled
-                          </span>
-                        ) : selectedCard.stage === 'CLOSED' ? (
-                          <span className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[8px] font-black uppercase tracking-wider flex items-center gap-0.5">
-                            ✓ Loop Cleared
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-orange-500 text-slate-950 rounded text-[8px] font-black uppercase tracking-wide animate-pulse">
-                            ● Active
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Continuous stepper progress timeline track */}
-                      <div className="relative flex justify-between items-start w-full">
-                        
-                        {/* Progress connecting line underlay */}
-                        <div className="absolute top-4 left-6 right-6 h-[2.5px] bg-slate-200 z-0">
-                          <div 
-                            className={`h-full transition-all duration-300 ${isCancelled ? 'bg-rose-500' : 'bg-emerald-500'}`} 
-                            style={{ 
-                              width: selectedCard.stage === 'CLOSED' 
-                                ? '100%' 
-                                : `${(Math.max(0, currentIdx) / (cardStageOrder.length - 2)) * 100}%` 
-                            }} 
-                          />
-                        </div>
-
-                        {stepperSteps.map((step, idx) => {
-                          const stepIdx = cardStageOrder.indexOf(step.key as any);
-                          const isDone = selectedCard.stage === 'CLOSED' || (currentIdx > stepIdx && !isCancelled);
-                          const isCurrent = selectedCard.stage === step.key && !isCancelled;
-
-                          return (
-                            <div key={step.key} className="relative z-10 flex flex-col items-center flex-1">
-                              {/* Bubble circle */}
-                              <div 
-                                className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs uppercase duration-200 transition-all ${
-                                  isCancelled && currentIdx === stepIdx
-                                    ? 'bg-rose-600 border-rose-600 text-white shadow-sm ring-4 ring-rose-100'
-                                    : isDone
-                                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
-                                    : isCurrent
-                                    ? 'bg-slate-900 border-slate-900 text-orange-400 font-black ring-4 ring-slate-200 scale-110'
-                                    : 'bg-white border-slate-300 text-slate-400'
-                                }`}
-                              >
-                                {isDone ? (
-                                  <CheckCircle className="w-4.5 h-4.5 text-white" />
-                                ) : isCancelled && currentIdx === stepIdx ? (
-                                  <span className="text-white">✕</span>
-                                ) : (
-                                  <span>{idx + 1}</span>
-                                )}
-                              </div>
-
-                              {/* Label text */}
-                              <div className="mt-2 text-center px-1">
-                                <span className={`text-[8.5px] font-black block uppercase tracking-wider ${isCurrent ? 'text-slate-900' : 'text-slate-500'}`}>
-                                  {step.label}
-                                </span>
-                                <span className="text-[7.5px] text-slate-400 block font-bold leading-normal uppercase">
-                                  {step.desc}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-
-                      </div>
-                    </div>
-                  );
-                })()}
 
                 {(() => {
                   const step1Completed = selectedCard.stage !== 'QUOTATION';
@@ -3438,33 +3686,65 @@ export default function JobCardManager({
                     ? Math.round(convertToINRLocal(selectedCard.invoiceVendorAmount || 0, selectedCard.invoiceCurrency || "INR")).toLocaleString() 
                     : "0";
 
+                  const tabs = [
+                    { key: 'OVERVIEW', label: 'Overview', unlocked: true, completed: true },
+                    { key: 'QUOTATION', label: 'Quotations', unlocked: step1Unlocked, completed: step1Completed },
+                    { key: 'APPROVAL', label: 'Approvals', unlocked: step2Unlocked, completed: step2Completed },
+                    { key: 'BOOKING', label: 'Booking', unlocked: step3Unlocked, completed: step3Completed },
+                    { key: 'VENDOR_INVOICE', label: 'Invoices', unlocked: step4Unlocked, completed: step4Completed },
+                    { key: 'FINANCE', label: 'Finance', unlocked: step5Unlocked, completed: step5Completed },
+                    { key: 'RECONCILIATION', label: 'Recon', unlocked: step6Unlocked, completed: step6Completed },
+                    { key: 'CLOSED', label: 'Archive', unlocked: step7Unlocked, completed: step7Completed },
+                  ];
+
                   return (
-                    <div className="space-y-4">
-                      {/* ACCORDION 1: SUMMARY OVERVIEW */}
-                      <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4">
-                        <button
-                          type="button"
-                          onClick={() => setActiveViewSection(activeViewSection === 'OVERVIEW' ? null : 'OVERVIEW')}
-                          className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 cursor-pointer ${
-                            activeViewSection === 'OVERVIEW' ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-800 hover:bg-slate-100"
-                          }`}
-                        >
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
-                            <div className="flex items-center gap-2">
-                              <LayoutDashboard className="w-4 h-4 text-orange-500" />
-                              <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Summary Overview</span>
-                            </div>
-                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                              Traveler: {selectedCard.travelerName || "N/A"} • Stage: {selectedCard.stage}
-                            </span>
-                          </div>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
-                            {activeViewSection === 'OVERVIEW' ? "Collapse [-]" : "Expand [+]"}
-                          </span>
-                        </button>
-                        
-                        {activeViewSection === 'OVERVIEW' && (
-                          <div className="p-6 border-t border-slate-100 bg-white space-y-6">
+                    <div className="space-y-5">
+                      {/* HORIZONTAL TAB SWITCHER */}
+                      <div className="bg-slate-50 border border-slate-205 p-1 rounded-2xl flex flex-wrap gap-1 shadow-2xs sticky top-0 z-30">
+                        {tabs.map(tab => {
+                          const isSelected = activeViewSection === tab.key;
+                          const isActiveStage = selectedCard.stage === tab.key || (tab.key === 'CLOSED' && selectedCard.stage === 'CLOSED');
+                          return (
+                            <button
+                              key={tab.key}
+                              type="button"
+                              onClick={() => {
+                                if (!tab.unlocked) {
+                                  let warningMsg = "";
+                                  if (tab.key === 'QUOTATION') warningMsg = "Stage 1 (Quotation) is Locked.";
+                                  else if (tab.key === 'APPROVAL') warningMsg = "Stage 2 (Approvals) is Locked: Please complete Step 1 bids first.";
+                                  else if (tab.key === 'BOOKING') warningMsg = "Stage 3 (Booking) is Locked: Please complete manager approvals in Step 2 first.";
+                                  else if (tab.key === 'VENDOR_INVOICE') warningMsg = "Stage 4 (Invoices) is Locked: Please complete Step 3 booking first.";
+                                  else if (tab.key === 'FINANCE') warningMsg = "Stage 5 (Finance) is Locked: Please complete Step 4 invoice details first.";
+                                  else if (tab.key === 'RECONCILIATION') warningMsg = "Stage 6 (Audit Logs) is Locked: Please verify payment clearance in Step 5 first.";
+                                  else if (tab.key === 'CLOSED') warningMsg = "Stage 7 (Closed Archive) is Locked: Please verify reconciliation audits in Step 6 first.";
+                                  
+                                  setStepWarning(warningMsg);
+                                  setTimeout(() => setStepWarning(null), 3000);
+                                  return;
+                                }
+                                setActiveViewSection(tab.key);
+                              }}
+                              className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-full transition-all flex items-center gap-1.5 cursor-pointer ${
+                                isSelected
+                                  ? "bg-slate-900 text-white shadow-sm"
+                                  : tab.unlocked
+                                  ? "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 hover:text-slate-900"
+                                  : "bg-slate-50 text-slate-400 border border-slate-200/50 cursor-not-allowed opacity-80"
+                              }`}
+                            >
+                              {!tab.unlocked && <Lock className="w-3 h-3 text-slate-455 shrink-0" />}
+                              {isActiveStage && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse shrink-0" />
+                              )}
+                              <span>{tab.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {/* SUB-SECTION: SUMMARY OVERVIEW */}
+                      {activeViewSection === 'OVERVIEW' && (
+                        <div className="bg-white border border-slate-205 rounded-[2rem] p-6 shadow-2xs space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="bg-slate-50/50 border border-slate-200 p-5 rounded-2xl hover:bg-white transition-all duration-200">
                           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Traveler</p>
@@ -3662,20 +3942,36 @@ export default function JobCardManager({
                   )}
 
                   {/* LOGS AUDITING CHRONOLOGY */}
-                  <div className="border-t-2 border-slate-100 pt-8 space-y-5">
-                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                  <div className="border-t-2 border-slate-100 pt-8 space-y-6">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2 mb-2">
                       <Activity className="w-4 h-4 text-orange-500" />
                       Chronological Audit log & timeline
                     </h4>
                     
-                    <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
+                    <div className="relative pl-6 border-l-2 border-slate-200 ml-3 space-y-6 max-h-64 overflow-y-auto pr-2 py-2">
                       {selectedCard.auditLogs && selectedCard.auditLogs.map((log, lIdx) => (
-                        <div key={lIdx} className="p-3 bg-slate-50 border border-slate-150 rounded-xl text-[10px] block leading-relaxed font-bold">
-                          <div className="flex justify-between items-center text-slate-400 font-black text-[9px] mb-1">
-                            <span>BY: {log.userId} — ACTION: {log.action.toUpperCase()}</span>
-                            <span>{new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString()}</span>
+                        <div key={lIdx} className="relative group text-left">
+                          {/* Dot connector */}
+                          <div className="absolute -left-[31.5px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-orange-500 bg-white group-hover:bg-orange-500 transition-colors duration-150 shadow-sm z-10 flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-orange-500 group-hover:bg-white transition-colors duration-150" />
                           </div>
-                          <p className="text-slate-800">{log.notes || "No extra metadata captured."}</p>
+                          
+                          <div className="p-4 bg-slate-50 border border-slate-150 rounded-2xl text-[10px] leading-relaxed font-bold hover:shadow-xs transition duration-150">
+                            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center text-slate-400 font-black text-[9px] mb-1.5 gap-1">
+                              <span className="text-slate-900 bg-slate-200/60 px-2 py-0.5 rounded-md font-mono">
+                                USER: {log.userId}
+                              </span>
+                              <span className="text-orange-600 font-black tracking-wider uppercase">
+                                {log.action.toUpperCase()}
+                              </span>
+                              <span className="text-slate-400 text-[8.5px]">
+                                {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <p className="text-slate-800 font-medium normal-case text-[11px] leading-relaxed bg-white/70 p-2.5 rounded-xl border border-slate-100 mt-1">
+                              {log.notes || "No extra metadata captured."}
+                            </p>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -3683,46 +3979,10 @@ export default function JobCardManager({
 
                           </div>
                         )}
-                      </div>
 
-                      {/* ACCORDION 2: STEP 1: BIDS & QUOTATIONS */}
-                      <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step1Unlocked ? "opacity-60" : ""}`}>
-                        <button
-                          type="button"
-                          disabled={!step1Unlocked}
-                          onClick={() => setActiveViewSection(activeViewSection === 'QUOTATION' ? null : 'QUOTATION')}
-                          className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
-                            !step1Unlocked 
-                              ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
-                              : activeViewSection === 'QUOTATION' 
-                              ? "bg-slate-900 text-white cursor-pointer" 
-                              : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
-                          }`}
-                        >
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 1: Vendor Bids & Quotations</span>
-                              <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                                step1Completed 
-                                  ? "bg-emerald-100 text-emerald-800" 
-                                  : "bg-amber-100 text-amber-800"
-                              }`}>
-                                {step1Completed ? "✓ Completed" : "⏳ Pending Bids"}
-                              </span>
-                            </div>
-                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                              {step1Completed 
-                                ? `Winning Bid: ${winningQuoteVendorName} (${winningQuoteAmount})` 
-                                : `${selectedCard.quotes?.length || 0} Bids Received`}
-                            </span>
-                          </div>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
-                            {activeViewSection === 'QUOTATION' ? "Collapse [-]" : "Expand [+]"}
-                          </span>
-                        </button>
-                        
-                        {activeViewSection === 'QUOTATION' && (
-                          <div className="p-6 border-t border-slate-100 bg-white space-y-6">
+                      {/* SUB-SECTION: BIDS & QUOTATIONS */}
+                      {activeViewSection === 'QUOTATION' && (
+                        <div className="bg-white border border-slate-205 rounded-[2rem] p-6 shadow-2xs space-y-6">
 
                             {/* WARNING VARIANCES */}
                             {selectedCard.indentId && indents.find(i => i.id === selectedCard.indentId)?.employee_code?.startsWith("EMP-TEMP-") && (
@@ -4192,7 +4452,7 @@ export default function JobCardManager({
 
                       {/* SUBSECTION C: QUOTE EVALUATION MATRIX */}
                       <div className="space-y-6">
-                        <div className="flex justify-between items-end px-2">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 px-2">
                           <div>
                             <h3 className="text-xl font-black text-slate-900 tracking-tight uppercase flex items-center gap-2">
                               <Briefcase className="w-6 h-6 text-orange-600" />
@@ -4200,119 +4460,26 @@ export default function JobCardManager({
                             </h3>
                             <p className="text-[10px] text-slate-900 font-bold uppercase tracking-widest mt-1">Direct comparison of all vendor bids received for this card</p>
                           </div>
-                          <div className="hidden md:flex gap-4 text-[8px] font-black uppercase tracking-widest text-slate-900 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-                            <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-sm" /> L1 Lowest</span>
-                            <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm" /> Selected</span>
+                          <div className="flex items-center gap-3">
+                            <div className="hidden md:flex gap-4 text-[8px] font-black uppercase tracking-widest text-slate-900 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                              <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-sm" /> L1 Lowest</span>
+                              <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm" /> Selected</span>
+                            </div>
+                            {selectedCard.quotes.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setFullscreenCompareTab('QUOTATION')}
+                                className="px-4 py-2.5 bg-slate-900 hover:bg-orange-605 hover:bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+                                title="Maximize Comparison Sheet"
+                              >
+                                <Maximize2 className="w-3.5 h-3.5" />
+                                <span>Maximize Sheet</span>
+                              </button>
+                            )}
                           </div>
                         </div>
 
-                        {selectedCard.quotes.length === 0 ? (
-                          <div className="p-16 text-center border-2 border-dashed border-slate-200 rounded-[3rem] bg-slate-50/50">
-                            <HelpCircle className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                            <h4 className="text-sm font-black text-slate-300 uppercase tracking-[0.2em] mb-2">Registry Void</h4>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">No quotation bids have been logged for this card yet.<br />Submit a proposal using the form above.</p>
-                          </div>
-                        ) : (
-                          <div className="bg-white border-2 border-slate-900 rounded-[2.5rem] overflow-hidden shadow-2xl relative">
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-left border-collapse">
-                                <thead>
-                                  <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">ID</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Vendor</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Agent</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Type</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Airline</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Sector</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Layover</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Date</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">Raw Quote</th>
-                                    <th className="px-4 py-5 border-r border-slate-800 text-white">INR Value</th>
-                                    <th className="px-4 py-5 text-center text-white">Actions</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 font-bold uppercase">
-                                  {selectedCard.quotes.map(q => {
-                                    const isWinning = selectedCard.winningQuoteId === q.id;
-                                    const lowestIdx = top3QuoteIds.indexOf(q.id);
-                                    const isCheapest = lowestIdx === 0;
-                                    const lRank = lowestIdx !== -1 ? `L${lowestIdx + 1}` : null;
-
-                                    const getInrVal = (val: number, cur: string) => convertToINR(val, cur);
-                                    const inrVal = getInrVal(q.amount, q.currency);
-
-                                    return (
-                                      <tr key={q.id} className={`group transition-colors ${isWinning ? 'bg-emerald-50/40' : isCheapest ? 'bg-orange-50/10' : 'hover:bg-slate-50'}`}>
-                                        <td className="px-4 py-5 border-r border-slate-100">
-                                          <div className="flex items-center gap-2">
-                                            <span className="bg-slate-200 text-slate-950 font-mono text-[8px] px-2 py-0.5 rounded-full select-none">{q.id}</span>
-                                            {lRank && (
-                                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                                                lRank === 'L1' ? 'bg-emerald-600 text-white' : 
-                                                lRank === 'L2' ? 'bg-blue-600 text-white' : 
-                                                'bg-slate-600 text-white'
-                                              }`}>
-                                                {lRank}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </td>
-                                        <td className="px-4 py-5 border-r border-slate-100 whitespace-normal break-words">
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-[11px] font-black text-slate-950 tracking-tight">{q.vendorName}</span>
-                                            {isWinning && <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" title="Approved Selection" />}
-                                            {isCheapest && <div className="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)]" title="Market Lowest (L1)" />}
-                                          </div>
-                                        </td>
-                                        <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-black whitespace-normal break-words">
-                                          {q.agentName || "Direct"}
-                                        </td>
-                                        <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-black whitespace-normal break-words">
-                                          {q.travelType || "FLIGHT"} {q.visaType ? `(${q.visaType})` : ""}
-                                        </td>
-                                        <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-black whitespace-normal break-words">
-                                          {q.airline || "Direct"}
-                                        </td>
-                                        <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-black whitespace-normal break-words">
-                                          {q.sector || selectedCard.destination || "N/A"}
-                                        </td>
-                                        <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-black whitespace-normal break-words">
-                                          {q.layover || "0"}H
-                                        </td>
-                                        <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-black">
-                                          {q.travelDate || "Immediate"}
-                                        </td>
-                                        <td className="px-4 py-5 border-r border-slate-100 text-[10px] text-slate-950 font-mono font-black">
-                                          {q.amount} {q.currency}
-                                        </td>
-                                        <td className="px-4 py-5 border-r border-slate-100 bg-slate-50/30">
-                                          <div className="text-[11px] font-black text-slate-950 font-mono">
-                                            ₹{inrVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                                          </div>
-                                        </td>
-                                        <td className="px-4 py-5">
-                                          <div className="flex items-center justify-center gap-1.5">
-                                            {q.quoteFileUrl && (
-                                              <a href={q.quoteFileUrl} target="_blank" rel="noreferrer" className="w-9 h-9 border border-slate-300 flex items-center justify-center rounded-xl text-slate-900 hover:text-orange-600 hover:border-orange-500 transition bg-white" title="View Document">
-                                                <FileText className="w-4 h-4" />
-                                              </a>
-                                            )}
-                                            <button onClick={() => handleEditQuote(q)} className="w-9 h-9 bg-white border border-slate-300 text-slate-900 hover:text-slate-950 hover:border-slate-950 flex items-center justify-center rounded-xl transition" title="Edit">
-                                              <Edit3 className="w-4 h-4" />
-                                            </button>
-                                            <button onClick={() => handleDeleteQuote(q.id)} className="w-9 h-9 bg-rose-50 border border-rose-200 text-rose-600 hover:text-rose-700 hover:bg-rose-100 flex items-center justify-center rounded-xl transition" title="Delete">
-                                              <Trash2 className="w-4 h-4" />
-                                            </button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        )}
+                        {renderComparisonTable('QUOTATION')}
                       </div>
 
                       {/* SUBSECTION D: SEND TO APPROVAL */}
@@ -4327,159 +4494,35 @@ export default function JobCardManager({
                         </button>
                       </div>
 
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ACCORDION 3: STEP 2: OPERATIONAL & VP APPROVALS */}
-                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step2Unlocked ? "opacity-60" : ""}`}>
-                    <button
-                      type="button"
-                      disabled={!step2Unlocked}
-                      onClick={() => setActiveViewSection(activeViewSection === 'APPROVAL' ? null : 'APPROVAL')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
-                        !step2Unlocked
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : activeViewSection === 'APPROVAL'
-                          ? "bg-slate-900 text-white cursor-pointer"
-                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 2: Operational & VP Approvals</span>
-                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                            !step2Unlocked
-                              ? "bg-slate-200 text-slate-500"
-                              : step2Completed
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {!step2Unlocked ? "🔒 Locked" : step2Completed ? "✓ Approved" : "⏳ Pending Approval"}
-                          </span>
                         </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                          {!step2Unlocked
-                            ? "Complete Step 1 first"
-                            : `L1: ${selectedCard.travelApprovalStatus === 'APPROVED' ? "✓" : "✗"} • L2: ${selectedCard.commercialApprovalStatus === 'APPROVED' ? "✓" : "✗"}`}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
-                        {activeViewSection === 'APPROVAL' ? "Collapse [-]" : "Expand [+]"}
-                      </span>
-                    </button>
-                    
-                    {activeViewSection === 'APPROVAL' && (
-                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
+                      )}
+
+                  {/* SUB-SECTION: OPERATIONAL & VP APPROVALS */}
+                  {activeViewSection === 'APPROVAL' && (
+                    <div className="bg-white border border-slate-205 rounded-[2rem] p-6 shadow-2xs space-y-6">
                       
                       {/* MASTER COMPARATIVE EVALUATION MATRIX */}
                       {selectedCard.quotes && selectedCard.quotes.length > 0 && (
                         <div className="space-y-4 text-left" id="master-bid-comparison-matrix-approval">
-                          <div>
-                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Evaluation Deck</span>
-                            <h3 className="text-base font-black uppercase tracking-tight text-slate-900 mt-0.5">Travel Comparison Sheet</h3>
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                            <div>
+                              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Evaluation Deck</span>
+                              <h3 className="text-base font-black uppercase tracking-tight text-slate-900 mt-0.5">Travel Comparison Sheet</h3>
+                            </div>
+                            {selectedCard.quotes.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setFullscreenCompareTab('APPROVAL')}
+                                className="px-4 py-2.5 bg-slate-900 hover:bg-orange-606 hover:bg-orange-605 hover:bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+                                title="Maximize Comparison Sheet"
+                              >
+                                <Maximize2 className="w-3.5 h-3.5" />
+                                <span>Maximize Sheet</span>
+                              </button>
+                            )}
                           </div>
 
-                          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
-                            <table className="w-full text-left border-collapse">
-                              <thead>
-                                <tr className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest border-b border-slate-800">
-                                  <th className="px-4 py-4 border-r border-slate-700">ID</th>
-                                  <th className="px-4 py-4 border-r border-slate-700">Vendor</th>
-                                  <th className="px-4 py-4 border-r border-slate-700">Agent</th>
-                                  <th className="px-4 py-4 border-r border-slate-700">Airline</th>
-                                  <th className="px-4 py-4 border-r border-slate-700">Sector</th>
-                                  <th className="px-4 py-4 border-r border-slate-700">Layover</th>
-                                  <th className="px-4 py-4 border-r border-slate-700">Date</th>
-                                  <th className="px-4 py-4 border-r border-slate-700">Raw Cost</th>
-                                  <th className="px-4 py-4 border-r border-slate-700">INR Equivalent</th>
-                                  <th className="px-4 py-4 text-center">Final Selection</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 font-bold uppercase text-[12px]">
-                                  {selectedCard.quotes.map(q => {
-                                    const isWinning = selectedCard.winningQuoteId === q.id;
-                                    const lowestIdx = top3QuoteIds.indexOf(q.id);
-                                    const isCheapest = lowestIdx === 0;
-                                    const lRank = lowestIdx !== -1 ? `L${lowestIdx + 1}` : null;
-
-                                    const getInrVal = (val: number, cur: string) => convertToINR(val, cur);
-                                    const inrVal = getInrVal(q.amount, q.currency);
-
-                                    return (
-                                      <tr key={q.id} className={`transition-colors ${isWinning ? "bg-emerald-50/30" : "bg-white"}`}>
-                                        <td className="px-4 py-5 border-r border-slate-100">
-                                        <div className="flex items-center gap-2">
-                                          <span className="bg-slate-200 text-slate-950 font-mono text-[10px] px-1.5 py-0.5 rounded-full">{q.id}</span>
-                                          {lRank && (
-                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                                              lRank === 'L1' ? 'bg-emerald-600 text-white' : 
-                                              lRank === 'L2' ? 'bg-blue-600 text-white' : 
-                                              'bg-slate-600 text-white'
-                                            }`}>
-                                              {lRank}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </td>
-                                    <td className="px-4 py-5 border-r border-slate-100">
-                                      <div className="text-slate-900 font-black tracking-tight flex items-center gap-1.5">
-                                        {q.vendorName}
-                                        {isWinning && <div className="w-2 h-2 rounded-full bg-emerald-500" title="Selected Proposal" />}
-                                        {isCheapest && <div className="w-2 h-2 rounded-full bg-orange-500" title="Lowest Bid" />}
-                                      </div>
-                                    </td>
-                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold">
-                                      {q.agentName || "Direct"}
-                                    </td>
-                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold">
-                                      {q.airline || "Direct"}
-                                    </td>
-                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold whitespace-normal">
-                                      {q.sector || selectedCard.destination || "N/A"}
-                                    </td>
-                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold">
-                                      {q.layover || "0"}H
-                                    </td>
-                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-semibold">
-                                      {q.travelDate || "Immediate"}
-                                    </td>
-                                    <td className="px-4 py-5 border-r border-slate-100 text-slate-900 font-black font-mono">
-                                      {q.amount} {q.currency}
-                                    </td>
-                                    <td className="px-4 py-5 border-r border-slate-100 bg-emerald-50/20">
-                                      <span className="text-slate-900 font-black font-mono">₹{inrVal.toLocaleString('en-IN')}</span>
-                                    </td>
-                                      <td className="px-4 py-5 text-center">
-                                        {isWinning ? (
-                                          <div className="flex flex-col items-center gap-1.5">
-                                            <span className="bg-emerald-600 text-white px-4 py-1.5 rounded-xl text-[9px] font-black tracking-widest inline-block shadow-sm">✓ SELECTED</span>
-                                            {hasPermission("SELECT_WINNING_BID") && selectedCard.commercialApprovalStatus !== 'APPROVED' && (
-                                              <button
-                                                onClick={() => handleSelectWinningQuote(q)}
-                                                className="text-[8px] text-rose-500 hover:text-rose-700 font-black uppercase tracking-wider underline"
-                                              >
-                                                Deselect
-                                              </button>
-                                            )}
-                                          </div>
-                                        ) : hasPermission("SELECT_WINNING_BID") && selectedCard.commercialApprovalStatus !== 'APPROVED' ? (
-                                          <button
-                                            onClick={() => handleSelectWinningQuote(q)}
-                                            className="h-8 px-3 bg-slate-900 hover:bg-orange-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition active:scale-95 shadow-sm"
-                                          >
-                                            Select This Quote
-                                          </button>
-                                        ) : (
-                                          <span className="text-slate-900 text-[9px] font-black opacity-25 select-none">—</span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
+                          {renderComparisonTable('APPROVAL')}
                         </div>
                       )}
 
@@ -4487,16 +4530,49 @@ export default function JobCardManager({
                       {(() => {
                         if (!resolvedEmployee) return null;
                         const validityDays = getPassportValidityDays(resolvedEmployee.passport_expiry);
-                        const isUnderLimit = validityDays !== null && validityDays < 365;
+                        
+                        let alertBg = "bg-emerald-50/60 border-emerald-250 text-emerald-850";
+                        let iconColor = "text-emerald-600";
+                        let badgeLabel = "Compliant";
+                        
+                        if (validityDays === null || validityDays <= 0) {
+                          alertBg = "bg-rose-50 border-rose-250 text-rose-850 animate-pulse";
+                          iconColor = "text-rose-600";
+                          badgeLabel = "Missing / Expired";
+                        } else if (validityDays < 30) {
+                          alertBg = "bg-rose-50 border-rose-250 text-rose-850 animate-pulse";
+                          iconColor = "text-rose-600";
+                          badgeLabel = `${validityDays} Days Left (<30d)`;
+                        } else if (validityDays < 180) {
+                          alertBg = "bg-amber-50 border-amber-250 text-amber-850";
+                          iconColor = "text-amber-600";
+                          badgeLabel = `${validityDays} Days Left (<180d)`;
+                        } else {
+                          badgeLabel = `${validityDays} Days Left (Safe)`;
+                        }
+
                         return (
-                          <div className={`p-4 rounded-2xl border flex items-center justify-between text-[10px] font-bold uppercase tracking-wider ${
-                            isUnderLimit ? "bg-rose-50 border-rose-200 text-rose-800 animate-pulse" : "bg-emerald-50/60 border-emerald-200 text-emerald-800"
-                          }`}>
+                          <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center sm:justify-between text-[10px] font-bold uppercase tracking-wider gap-3 ${alertBg}`}>
                             <div className="flex items-center gap-2">
-                              <ShieldAlert className={`w-4 h-4 shrink-0 ${isUnderLimit ? 'text-rose-600' : 'text-emerald-600'}`} />
-                              <span>Identity Audit Check: <span className="text-slate-900 font-extrabold">{resolvedEmployee.name}</span> ({resolvedEmployee.passport_number || "N/A"}) • Expiring {resolvedEmployee.passport_expiry || "N/A"}</span>
+                              <ShieldAlert className={`w-4 h-4 shrink-0 ${iconColor}`} />
+                              <span>Identity Audit Check: <span className="text-slate-900 font-extrabold">{resolvedEmployee.name}</span> ({resolvedEmployee.passport_number ? (
+                                <span className="inline-flex items-center gap-1 bg-slate-200 border border-slate-350 text-slate-900 font-mono text-[9px] px-1.5 py-0.5 rounded-md select-all">
+                                  {resolvedEmployee.passport_number}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCopy(resolvedEmployee.passport_number || "", 'passport');
+                                    }}
+                                    className="text-slate-500 hover:text-slate-800 active:scale-90 transition cursor-pointer"
+                                    title="Copy Passport ID"
+                                  >
+                                    {copiedId === 'passport' ? <Check className="w-3 h-3 text-emerald-600 font-bold" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </span>
+                              ) : "N/A"}) • Expiring {resolvedEmployee.passport_expiry || "N/A"}</span>
                             </div>
-                            <div className="font-mono font-black">{validityDays !== null ? `${validityDays} Days Left` : "Missing / Expired"}</div>
+                            <div className="font-mono font-black text-right shrink-0">{badgeLabel}</div>
                           </div>
                         );
                       })()}
@@ -4543,23 +4619,64 @@ export default function JobCardManager({
                           ) : (
                             <div className="space-y-2 pt-2">
                               {hasPermission("APPROVE_INDENT_L1") ? (
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => handleL1TravelDecision('APPROVED')}
-                                    disabled={submittingApproval}
-                                    id="btn-l1-approve"
-                                    className="flex-1 py-2.5 bg-slate-950 hover:bg-slate-800 text-white font-black text-[9px] uppercase tracking-wider rounded-lg transition"
-                                  >
-                                    Approve Level 1
-                                  </button>
-                                  <button
-                                    onClick={() => handleL1TravelDecision('REJECTED')}
-                                    disabled={submittingApproval}
-                                    id="btn-l1-reject"
-                                    className="py-2.5 px-3 bg-rose-50 border border-rose-200 text-rose-700 font-black text-[9px] uppercase tracking-wider rounded-lg hover:bg-rose-100 transition whitespace-nowrap"
-                                  >
-                                    Reject L1
-                                  </button>
+                                <div className="space-y-3">
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setConfirmModal({
+                                          title: "Confirm L1 Approval",
+                                          message: "Are you sure you want to approve this travel request at Level 1?",
+                                          confirmText: "Approve L1",
+                                          onConfirm: () => handleL1TravelDecision('APPROVED')
+                                        });
+                                      }}
+                                      disabled={submittingApproval}
+                                      id="btn-l1-approve"
+                                      className="flex-1 py-2.5 bg-slate-950 hover:bg-slate-800 text-white font-black text-[9px] uppercase tracking-wider rounded-lg transition cursor-pointer"
+                                    >
+                                      Approve Level 1
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowL1RejectReason(prev => !prev)}
+                                      disabled={submittingApproval}
+                                      id="btn-l1-reject"
+                                      className="py-2.5 px-3 bg-rose-50 border border-rose-200 text-rose-700 font-black text-[9px] uppercase tracking-wider rounded-lg hover:bg-rose-100 transition whitespace-nowrap cursor-pointer"
+                                    >
+                                      {showL1RejectReason ? "Cancel Reject" : "Reject L1"}
+                                    </button>
+                                  </div>
+
+                                  {showL1RejectReason && (
+                                    <div className="pt-3 border-t border-slate-100 space-y-2.5 text-left">
+                                      <label className="block text-[8px] font-black text-rose-600 uppercase tracking-widest leading-none">
+                                        Specify Rejection Reason (Required) *
+                                      </label>
+                                      <textarea
+                                        rows={2}
+                                        value={approvalNotes}
+                                        onChange={e => setApprovalNotes(e.target.value)}
+                                        placeholder="e.g. Flight schedules mismatch or traveler compliance document expired."
+                                        className="w-full bg-white border border-rose-300 rounded-xl p-2.5 text-xs text-slate-850 uppercase tracking-wide placeholder-slate-350 focus:outline-none focus:border-rose-500 font-sans font-bold"
+                                      />
+                                      <button
+                                        type="button"
+                                        disabled={!approvalNotes.trim()}
+                                        onClick={() => {
+                                          setConfirmModal({
+                                            title: "Reject Level 1",
+                                            message: "Are you sure you want to reject this travel card at Level 1? This will decline the request.",
+                                            confirmText: "Reject",
+                                            onConfirm: () => handleL1TravelDecision('REJECTED')
+                                          });
+                                        }}
+                                        className="w-full py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-[9px] uppercase tracking-wider rounded-lg transition cursor-pointer"
+                                      >
+                                        Confirm Rejection
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <p className="text-[9px] text-orange-600 bg-orange-50 p-2.5 border border-orange-100 rounded-lg font-black uppercase tracking-wider text-center" title="Request permission mapping change in Settings">
@@ -4616,7 +4733,7 @@ export default function JobCardManager({
                           ) : (
                             <div className="space-y-2 pt-2">
                               {hasPermission("APPROVE_COMMERCIAL_L2") ? (
-                                <div className="space-y-2">
+                                <div className="space-y-3">
                                   {!selectedCard.winningQuoteId && (
                                     <p className="text-[9px] text-blue-700 bg-blue-50 border border-blue-200 p-2.5 rounded-lg font-black uppercase tracking-wider text-center">
                                       ☝️ Select a quote from the comparison table above to enable authorization
@@ -4624,22 +4741,61 @@ export default function JobCardManager({
                                   )}
                                   <div className="flex gap-2">
                                     <button
-                                      onClick={() => handleL2CommercialDecision('APPROVED')}
+                                      type="button"
+                                      onClick={() => {
+                                        setConfirmModal({
+                                          title: "Confirm VP Commercial Approval",
+                                          message: `Are you sure you want to authorize sign-off for '${winningQuoteVendorName}' at '${winningQuoteAmount}'?`,
+                                          confirmText: "Authorize L2",
+                                          onConfirm: () => handleL2CommercialDecision('APPROVED')
+                                        });
+                                      }}
                                       disabled={submittingApproval || !selectedCard.winningQuoteId}
                                       id="btn-l2-approve"
-                                      className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-[9px] uppercase tracking-wider rounded-lg transition shadow-xs"
+                                      className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-[9px] uppercase tracking-wider rounded-lg transition shadow-xs cursor-pointer"
                                     >
                                       {selectedCard.winningQuoteId ? "Authorize Signoff" : "Select Quote First →"}
                                     </button>
                                     <button
-                                      onClick={() => handleL2CommercialDecision('REJECTED')}
+                                      type="button"
+                                      onClick={() => setShowL2RejectReason(prev => !prev)}
                                       disabled={submittingApproval}
                                       id="btn-l2-reject"
-                                      className="py-2.5 px-3 bg-rose-50 border border-rose-200 text-rose-700 font-black text-[9px] uppercase tracking-wider rounded-lg hover:bg-rose-100 transition whitespace-nowrap"
+                                      className="py-2.5 px-3 bg-rose-50 border border-rose-200 text-rose-700 font-black text-[9px] uppercase tracking-wider rounded-lg hover:bg-rose-100 transition whitespace-nowrap cursor-pointer"
                                     >
-                                      Reject L2
+                                      {showL2RejectReason ? "Cancel Reject" : "Reject L2"}
                                     </button>
                                   </div>
+
+                                  {showL2RejectReason && (
+                                    <div className="pt-3 border-t border-slate-100 space-y-2.5 text-left">
+                                      <label className="block text-[8px] font-black text-rose-600 uppercase tracking-widest leading-none">
+                                        Specify Rejection Reason (Required) *
+                                      </label>
+                                      <textarea
+                                        rows={2}
+                                        value={approvalNotes}
+                                        onChange={e => setApprovalNotes(e.target.value)}
+                                        placeholder="e.g. Budget variance is unacceptable. Source alternate vendor proposals."
+                                        className="w-full bg-white border border-rose-300 rounded-xl p-2.5 text-xs text-slate-850 uppercase tracking-wide placeholder-slate-350 focus:outline-none focus:border-rose-500 font-sans font-bold"
+                                      />
+                                      <button
+                                        type="button"
+                                        disabled={!approvalNotes.trim()}
+                                        onClick={() => {
+                                          setConfirmModal({
+                                            title: "Reject Level 2",
+                                            message: "Are you sure you want to reject this travel card at Level 2? This will send the card back to the Quotation phase.",
+                                            confirmText: "Reject",
+                                            onConfirm: () => handleL2CommercialDecision('REJECTED')
+                                          });
+                                        }}
+                                        className="w-full py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-[9px] uppercase tracking-wider rounded-lg transition cursor-pointer"
+                                      >
+                                        Confirm Rejection
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <p className="text-[9px] text-orange-600 bg-orange-50 p-2.5 border border-orange-100 rounded-lg font-black uppercase tracking-wider text-center" title="Request permission mapping change in Settings">
@@ -4687,143 +4843,151 @@ export default function JobCardManager({
                         const seatPref = woIndent?.seat_preference === "OTHER" ? (woIndent?.seat_preference_other || "Other") : (woIndent?.seat_preference || "N/A");
                         const mealPref = woIndent?.meal_preference === "OTHER" ? (woIndent?.meal_preference_other || "Other") : (woIndent?.meal_preference || "N/A");
                         return (
-                          <div className="bg-white border-2 border-slate-900 rounded-3xl p-6 shadow-md space-y-5 text-left relative overflow-hidden my-4">
-                            {/* Top-right status watermark */}
-                            <div className="absolute top-4 right-4 bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">
-                              AUTHORIZED WORKORDER
-                            </div>
-
-                            {/* Letterhead Header */}
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b-2 border-slate-100">
+                          <div className="bg-white border border-slate-200 border-t-4 border-t-orange-500 rounded-3xl p-6 shadow-sm space-y-5 text-left relative overflow-hidden my-4 font-sans">
+                            {/* Header Branding */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-200">
                               <div className="flex items-center gap-3">
                                 <img
                                   src="https://res.cloudinary.com/dn6sk8mqh/image/upload/v1779866397/Gemini_Generated_Image_c6yvaxc6yvaxc6yv_hr5guu.png"
                                   alt="Hemraj Industries"
-                                  className="w-12 h-12 object-contain rounded-lg border border-slate-200"
+                                  className="w-10 h-10 object-contain rounded-lg border border-slate-200"
                                 />
                                 <div>
-                                  <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 leading-none">Hemraj Industries</h3>
-                                  <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block mt-1">Corporate Travel &amp; Procurement</span>
+                                  <h3 className="text-xs font-black uppercase tracking-wider text-orange-600 leading-none">HEMRAJ GROUP OF COMPANIES</h3>
+                                  <span className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest block mt-1">Corporate Travel Operations Desk</span>
                                 </div>
                               </div>
-                              <div className="text-left sm:text-right font-mono text-[9px] text-slate-400 font-black">
-                                <div>REF ID: WO-{selectedCard.id}</div>
-                                <div>DATE: {selectedCard.commercialApprovedAt ? new Date(selectedCard.commercialApprovedAt).toLocaleDateString() : new Date().toLocaleDateString()}</div>
+                              <div className="text-left sm:text-right font-bold text-xs text-slate-900 tracking-wider">
+                                DIGITAL WORK ORDER
                               </div>
                             </div>
 
-                            {/* Work Order Title */}
-                            <div className="text-center py-2 bg-slate-50 border border-slate-200 rounded-xl">
-                              <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-900">TRAVEL WORK ORDER AUTHORIZATION</h4>
+                            {/* Metadata */}
+                            <div className="flex justify-between items-center text-[9px] text-slate-500 font-bold border-b border-slate-100 pb-2">
+                              <span>REFERENCE ID: WO-{selectedCard.id}</span>
+                              <span>DATE OF ISSUE: {selectedCard.commercialApprovedAt ? new Date(selectedCard.commercialApprovedAt).toLocaleDateString() : new Date().toLocaleDateString()}</span>
                             </div>
 
-                            {/* Formal Body Text */}
-                            <p className="text-[11px] text-slate-600 leading-relaxed">
-                              Dear Sourcing Partner / Operations Coordinator,
-                              <br /><br />
-                              We hereby authorize the ticket issuance and booking execution for the travel request detailed below. This order is issued under the authority of the VP Commercial and is subject to the approved procurement guidelines and cost thresholds. Please proceed with the ticketing operations immediately.
-                            </p>
-
-                            {/* Core Details Table */}
-                            <div className="border border-slate-200 rounded-2xl overflow-hidden">
-                              <table className="w-full text-[10px] text-left divide-y divide-slate-200">
-                                <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                                  <tr className="bg-slate-50/50">
-                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200 w-1/3">Traveler Details</td>
-                                    <td className="px-4 py-2.5 text-slate-900 font-bold">{selectedCard.travelerName} ({resolvedEmployee?.employee_code || "N/A"})</td>
-                                  </tr>
-                                  <tr>
-                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Sector / Route</td>
-                                    <td className="px-4 py-2.5 text-slate-900 font-bold">{selectedCard.destination}</td>
-                                  </tr>
-                                  <tr className="bg-slate-50/50">
-                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Expected Travel Date</td>
-                                    <td className="px-4 py-2.5 text-slate-900 font-bold">{woWinQuote?.travelDate || woIndent?.travel_date || "Immediate"}</td>
-                                  </tr>
-                                  <tr>
-                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Sourced Agency</td>
-                                    <td className="px-4 py-2.5 text-slate-900 font-bold uppercase">{woWinQuote?.vendorName || "TBD"}</td>
-                                  </tr>
-                                  <tr className="bg-slate-50/50">
-                                    <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Approved Budget</td>
-                                    <td className="px-4 py-2.5 font-bold">
-                                      <span className="text-emerald-700">{woWinQuote ? `${woWinQuote.amount} ${woWinQuote.currency}` : "N/A"}</span>
-                                      {woWinQuote && woWinQuote.currency !== "INR" && (
-                                        <span className="ml-2 text-slate-500 text-[9px]">(≈ ₹{woInrVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })})</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                </tbody>
-                              </table>
+                            {/* Section 1: Traveler Profile */}
+                            <div className="space-y-2">
+                              <div className="bg-slate-100 border border-slate-300 px-3 py-1.5 rounded-lg text-[9px] font-black text-slate-900 tracking-wider">
+                                1. TRAVELER PROFILE
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden text-[10px]">
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Traveler Name:</span>
+                                  <span className="font-bold text-slate-800">{selectedCard.travelerName}</span>
+                                </div>
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Employee Code:</span>
+                                  <span className="font-bold text-slate-800">{resolvedEmployee?.employee_code || "N/A"}</span>
+                                </div>
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Department:</span>
+                                  <span className="font-bold text-slate-800">{selectedCard.department || "N/A"}</span>
+                                </div>
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Base City:</span>
+                                  <span className="font-bold text-slate-800">{resolvedEmployee?.native_city || "N/A"}</span>
+                                </div>
+                              </div>
                             </div>
 
-                            {/* Travel Preferences Section */}
-                            {woIndent && (
-                              <div>
-                                <h5 className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Travel Preferences &amp; Specifics</h5>
-                                <div className="border border-slate-200 rounded-2xl overflow-hidden">
-                                  <table className="w-full text-[10px] text-left divide-y divide-slate-200">
-                                    <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                                      <tr className="bg-slate-50/50">
-                                        <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200 w-1/3">Transport Category</td>
-                                        <td className="px-4 py-2.5 text-slate-900 font-bold uppercase">{travelType}</td>
-                                      </tr>
-                                      {(travelType === "DOMESTIC" || travelType === "INTERNATIONAL") && (<>
-                                        <tr>
-                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Seat Preference</td>
-                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{seatPref}</td>
-                                        </tr>
-                                        <tr className="bg-slate-50/50">
-                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Meal Preference</td>
-                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{mealPref}</td>
-                                        </tr>
-                                        <tr>
-                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Luggage Allowance</td>
-                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{woIndent.luggage || "Standard / None"}</td>
-                                        </tr>
-                                      </>)}
-                                      {travelType === "TRAIN" && (<>
-                                        <tr>
-                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Preferred Class</td>
-                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{resolvedEmployee?.train_preferred_class || "N/A"}</td>
-                                        </tr>
-                                        <tr className="bg-slate-50/50">
-                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Berth Preference</td>
-                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{resolvedEmployee?.train_berth_preference || "N/A"}</td>
-                                        </tr>
-                                        <tr>
-                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Meal Preference</td>
-                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{resolvedEmployee?.train_meal_preference || "N/A"}</td>
-                                        </tr>
-                                      </>)}
-                                      {(travelType === "BUS") && (<>
-                                        <tr>
-                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Seat Preference</td>
-                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{seatPref}</td>
-                                        </tr>
-                                        <tr className="bg-slate-50/50">
-                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Luggage</td>
-                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{woIndent.luggage || "N/A"}</td>
-                                        </tr>
-                                      </>)}
-                                      {travelType === "CAB" && (
-                                        <tr>
-                                          <td className="px-4 py-2.5 font-black text-slate-400 uppercase tracking-wider border-r border-slate-200">Luggage</td>
-                                          <td className="px-4 py-2.5 text-slate-900 font-bold">{woIndent.luggage || "N/A"}</td>
-                                        </tr>
-                                      )}
-                                    </tbody>
-                                  </table>
+                            {/* Section 2: Journey Constraints & Preferences */}
+                            <div className="space-y-2">
+                              <div className="bg-slate-100 border border-slate-300 px-3 py-1.5 rounded-lg text-[9px] font-black text-slate-900 tracking-wider">
+                                2. JOURNEY CONSTRAINTS & PREFERENCES
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden text-[10px]">
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Transport Mode:</span>
+                                  <span className="font-bold text-slate-800 uppercase">{travelType}</span>
+                                </div>
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Sector / Route:</span>
+                                  <span className="font-bold text-slate-800">{woIndent?.source_location || "N/A"} → {selectedCard.destination}</span>
+                                </div>
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Travel Date:</span>
+                                  <span className="font-bold text-slate-800">{woWinQuote?.travelDate || woIndent?.travel_date || "Immediate"}</span>
+                                </div>
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Booking PNR:</span>
+                                  <span className="font-bold text-slate-800">{selectedCard.bookingPNR || "TBD"}</span>
+                                </div>
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Seat Preference:</span>
+                                  <span className="font-bold text-slate-800">{seatPref}</span>
+                                </div>
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Meal Preference:</span>
+                                  <span className="font-bold text-slate-800">{mealPref}</span>
+                                </div>
+                                <div className="bg-white p-2.5 col-span-1 sm:col-span-2 flex justify-between border-t border-slate-100">
+                                  <span className="font-black text-slate-400 uppercase">Luggage Details:</span>
+                                  <span className="font-bold text-slate-800">{woIndent?.luggage || "Standard / None"}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Section 3: Commercially Approved Quotation */}
+                            <div className="space-y-2">
+                              <div className="bg-slate-100 border border-slate-300 px-3 py-1.5 rounded-lg text-[9px] font-black text-slate-900 tracking-wider">
+                                3. COMMERCIALLY APPROVED QUOTATION
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden text-[10px]">
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Authorized Vendor:</span>
+                                  <span className="font-bold text-slate-800 uppercase">{woWinQuote?.vendorName || "TBD"}</span>
+                                </div>
+                                <div className="bg-white p-2.5 flex justify-between">
+                                  <span className="font-black text-slate-400 uppercase">Agreed Rate:</span>
+                                  <span className="font-bold text-slate-800">{woWinQuote?.amount || 0} {woWinQuote?.currency || "INR"}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Section 4: Remarks (Visible if typed) */}
+                            {workOrderRemarks.trim() && (
+                              <div className="space-y-2">
+                                <div className="bg-slate-100 border border-slate-300 px-3 py-1.5 rounded-lg text-[9px] font-black text-slate-900 tracking-wider">
+                                  4. ADDITIONAL REMARKS / INSTRUCTIONS
+                                </div>
+                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[10px] text-slate-800 font-bold uppercase whitespace-pre-line leading-relaxed">
+                                  {workOrderRemarks}
                                 </div>
                               </div>
                             )}
 
-                            {/* Official Directive Note (updated — matches downloadable WO) */}
-                            <div className="p-3.5 bg-amber-50/40 border border-amber-200 rounded-2xl text-[10px] text-slate-700 leading-snug font-serif italic">
+                            {/* Remarks input field for editing */}
+                            <div className="space-y-1.5 text-left pt-2">
+                              <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest">Remarks / Special Instructions (Optional)</label>
+                              <textarea
+                                value={workOrderRemarks}
+                                onChange={(e) => setWorkOrderRemarks(e.target.value)}
+                                placeholder="e.g. Please select the morning flight option. Max budget threshold is strict."
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-[10px] text-slate-800 uppercase tracking-wide placeholder-slate-400 focus:outline-none focus:border-orange-500 font-sans font-bold min-h-[50px] resize-y"
+                              />
+                            </div>
+
+                            {/* System Validation Box */}
+                            <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[10px]">
+                              <div className="space-y-1 text-left">
+                                <div className="font-black text-amber-800 uppercase tracking-wider">SYSTEM AUTHORIZATION VALIDATION</div>
+                                <div className="text-amber-700 font-bold">Commercial VP Approval By: {selectedCard.commercialApprovedBy || "VP Commercial Admin"}</div>
+                                <div className="text-amber-600 font-bold">Authorized Timestamp: {selectedCard.commercialApprovedAt ? new Date(selectedCard.commercialApprovedAt).toLocaleString() : new Date().toLocaleString()}</div>
+                              </div>
+                              <div className="font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl uppercase tracking-widest self-start sm:self-center">
+                                STATUS: SIGNED & APPROVED
+                              </div>
+                            </div>
+
+                            {/* Official Directive Note */}
+                            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-[9px] text-slate-500 leading-snug font-serif italic">
                               NOTE: Booking execution and ticket issuance should only be processed when the official Work Order has been dispatched from official corporate email domains.
                             </div>
 
-                            {/* Footer: Authorized VP + Download / Send */}
+                            {/* Footer / Buttons */}
                             <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                               <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
                                 <span>Authorized VP:</span>
@@ -4863,59 +5027,22 @@ export default function JobCardManager({
 
                       {/* WORKSPACE USER REMARKS BOX */}
                       <div className="space-y-2">
-                        <label className="block text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Evaluation feedback / reviewer remarks (optional)</label>
+                        <label className="block text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">General Approval Remarks / Reviewer Notes (Optional)</label>
                         <textarea
                           rows={2}
+                          value={approvalNotes}
+                          onChange={e => setApprovalNotes(e.target.value)}
                           placeholder="e.g. Flight schedules look clean and budget is fully within compliance. Proceed."
+                          className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-800 uppercase tracking-wide placeholder-slate-400 focus:outline-none focus:border-slate-400 font-sans font-bold"
                         ></textarea>
                       </div>
 
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ACCORDION 4: STEP 3: TICKET BOOKING & PNR REGISTRY */}
-                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step3Unlocked ? "opacity-60" : ""}`}>
-                    <button
-                      type="button"
-                      disabled={!step3Unlocked}
-                      onClick={() => setActiveViewSection(activeViewSection === 'BOOKING' ? null : 'BOOKING')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
-                        !step3Unlocked
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : activeViewSection === 'BOOKING'
-                          ? "bg-slate-900 text-white cursor-pointer"
-                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 3: Ticket Booking & PNR Registry</span>
-                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                            !step3Unlocked
-                              ? "bg-slate-200 text-slate-500"
-                              : step3Completed
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {!step3Unlocked ? "🔒 Locked" : step3Completed ? "✓ Booked" : "⏳ Pending Booking"}
-                          </span>
                         </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                          {!step3Unlocked
-                            ? "Complete Step 2 first"
-                            : step3Completed
-                            ? `PNR: ${selectedCard.bookingPNR || "N/A"} • ₹${formattedBookedAmount}`
-                            : "No PNR recorded yet"}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
-                        {activeViewSection === 'BOOKING' ? "Collapse [-]" : "Expand [+]"}
-                      </span>
-                    </button>
-                    
-                    {activeViewSection === 'BOOKING' && (
-                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
+                      )}
+
+                      {/* SUB-SECTION: TICKET BOOKING & PNR REGISTRY */}
+                      {activeViewSection === 'BOOKING' && (
+                        <div className="bg-white border border-slate-205 rounded-[2rem] p-6 shadow-2xs space-y-6">
                       
                       <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
                         <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
@@ -5054,52 +5181,12 @@ export default function JobCardManager({
 
                       </form>
 
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ACCORDION 5: STEP 4: VENDOR INVOICES & GST VALIDATION */}
-                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step4Unlocked ? "opacity-60" : ""}`}>
-                    <button
-                      type="button"
-                      disabled={!step4Unlocked}
-                      onClick={() => setActiveViewSection(activeViewSection === 'VENDOR_INVOICE' ? null : 'VENDOR_INVOICE')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
-                        !step4Unlocked
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : activeViewSection === 'VENDOR_INVOICE'
-                          ? "bg-slate-900 text-white cursor-pointer"
-                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 4: Vendor Invoices & GST Validation</span>
-                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                            !step4Unlocked
-                              ? "bg-slate-200 text-slate-500"
-                              : step4Completed
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {!step4Unlocked ? "🔒 Locked" : step4Completed ? "✓ Uploaded" : "⏳ Pending Invoice"}
-                          </span>
                         </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                          {!step4Unlocked
-                            ? "Complete Step 3 first"
-                            : step4Completed
-                            ? `Invoice: ₹${formattedInvoiceAmount} • GST: ${selectedCard.airlineGstNumber ? "✓" : "N/A"}`
-                            : "No invoice uploaded yet"}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
-                        {activeViewSection === 'VENDOR_INVOICE' ? "Collapse [-]" : "Expand [+]"}
-                      </span>
-                    </button>
-                    
-                    {activeViewSection === 'VENDOR_INVOICE' && (
-                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
+                      )}
+
+                  {/* SUB-SECTION: VENDOR INVOICES & GST VALIDATION */}
+                  {activeViewSection === 'VENDOR_INVOICE' && (
+                    <div className="bg-white border border-slate-205 rounded-[2rem] p-6 shadow-2xs space-y-6">
                       
                       <div className="p-4 bg-orange-50 border border-orange-200 text-orange-950 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
                         <FileText className="w-5 h-5 text-orange-600 shrink-0" />
@@ -5283,52 +5370,12 @@ export default function JobCardManager({
 
                       </form>
 
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ACCORDION 6: STEP 5: FINANCE CLEARANCE & RELEASES */}
-                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step5Unlocked ? "opacity-60" : ""}`}>
-                    <button
-                      type="button"
-                      disabled={!step5Unlocked}
-                      onClick={() => setActiveViewSection(activeViewSection === 'FINANCE' ? null : 'FINANCE')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
-                        !step5Unlocked
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : activeViewSection === 'FINANCE'
-                          ? "bg-slate-900 text-white cursor-pointer"
-                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 5: Finance Clearance & Releases</span>
-                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                            !step5Unlocked
-                              ? "bg-slate-200 text-slate-500"
-                              : step5Completed
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {!step5Unlocked ? "🔒 Locked" : step5Completed ? "✓ Cleared" : "⏳ Pending Finance"}
-                          </span>
                         </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                          {!step5Unlocked
-                            ? "Complete Step 4 first"
-                            : step5Completed
-                            ? `Payment: ${selectedCard.paymentTransactionRef || "Cleared"}`
-                            : "Awaiting payment clearance"}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
-                        {activeViewSection === 'FINANCE' ? "Collapse [-]" : "Expand [+]"}
-                      </span>
-                    </button>
-                    
-                    {activeViewSection === 'FINANCE' && (
-                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
+                      )}
+
+                  {/* SUB-SECTION: FINANCE CLEARANCE & RELEASES */}
+                  {activeViewSection === 'FINANCE' && (
+                    <div className="bg-white border border-slate-205 rounded-[2rem] p-6 shadow-2xs space-y-6">
                       
                       <div className="p-4 bg-orange-50 border border-orange-200 text-orange-950 rounded-2xl flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
                         <DollarSign className="w-5 h-5 text-orange-600 shrink-0 animate-pulse" />
@@ -5479,56 +5526,16 @@ export default function JobCardManager({
                         );
                       })()}
 
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ACCORDION 7: STEP 6: RECONCILIATION & AUDITING LOGS */}
-                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step6Unlocked ? "opacity-60" : ""}`}>
-                    <button
-                      type="button"
-                      disabled={!step6Unlocked}
-                      onClick={() => setActiveViewSection(activeViewSection === 'RECONCILIATION' ? null : 'RECONCILIATION')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
-                        !step6Unlocked
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : activeViewSection === 'RECONCILIATION'
-                          ? "bg-slate-900 text-white cursor-pointer"
-                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 6: Reconciliation & Auditing Logs</span>
-                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                            !step6Unlocked
-                              ? "bg-slate-200 text-slate-500"
-                              : step6Completed
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {!step6Unlocked ? "🔒 Locked" : step6Completed ? "✓ Audited" : "⏳ Pending Audit"}
-                          </span>
                         </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                          {!step6Unlocked
-                            ? "Complete Step 5 first"
-                            : step6Completed
-                            ? "Audit complete — Variance checked"
-                            : "Awaiting reconciliation review"}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
-                        {activeViewSection === 'RECONCILIATION' ? "Collapse [-]" : "Expand [+]"}
-                      </span>
-                    </button>
-                    
-                    {activeViewSection === 'RECONCILIATION' && (() => {
-                      const localLinkedIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
-                      const isGstApplicable = localLinkedIndent ? localLinkedIndent.gst_applicable !== false : true;
+                      )}
 
-                      return (
-                        <div className="p-6 border-t border-slate-100 bg-white space-y-6">
+                  {/* SUB-SECTION: RECONCILIATION & AUDITING LOGS */}
+                  {activeViewSection === 'RECONCILIATION' && (() => {
+                    const localLinkedIndent = indents.find(i => i.id === selectedCard.id || i.id === selectedCard.indentId);
+                    const isGstApplicable = localLinkedIndent ? localLinkedIndent.gst_applicable !== false : true;
+
+                    return (
+                      <div className="bg-white border border-slate-205 rounded-[2rem] p-6 shadow-2xs space-y-6">
                         
                         {/* COMPARE APPROVED VS FINAL FOR VARIANCE ALERT */}
                         {(() => {
@@ -5670,7 +5677,7 @@ export default function JobCardManager({
                         )}
 
                         {/* CLEARANCE VERIFICATION FORM */}
-                        <form onSubmit={handleSaveReconciliation} className="space-y-6">
+                        <form id="final-reconciliation-form" onSubmit={handleSaveReconciliation} className="space-y-6">
                           
                           <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
                             <div className="md:col-span-4">
@@ -5806,7 +5813,22 @@ export default function JobCardManager({
 
                           <div className="border-t border-slate-100 pt-6 flex justify-end gap-3">
                             <button
-                              type="submit"
+                              type="button"
+                              onClick={() => {
+                                const form = document.getElementById('final-reconciliation-form') as HTMLFormElement;
+                                if (form && !form.checkValidity()) {
+                                  form.reportValidity();
+                                  return;
+                                }
+                                setConfirmModal({
+                                  title: "Reconcile & Close Card",
+                                  message: "Are you sure you want to finalize reconciliation and permanently close this Job Card? This action cannot be reversed.",
+                                  confirmText: "Close Card",
+                                  onConfirm: () => {
+                                    handleSaveReconciliation(new Event('submit') as any);
+                                  }
+                                });
+                              }}
                               className="px-6 py-3 bg-slate-950 hover:bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-full transition cursor-pointer"
                             >
                               Mark as Closed & Complete Loop
@@ -5818,50 +5840,10 @@ export default function JobCardManager({
                       </div>
                     );
                   })()}
-                  </div>
 
-                  {/* ACCORDION 8: STEP 7: FINAL RECONCILIATION (CLOSED) */}
-                  <div className={`border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-xs mb-4 ${!step7Unlocked ? "opacity-60" : ""}`}>
-                    <button
-                      type="button"
-                      disabled={!step7Unlocked}
-                      onClick={() => setActiveViewSection(activeViewSection === 'CLOSED' ? null : 'CLOSED')}
-                      className={`w-full px-6 py-4 flex items-center justify-between text-left transition duration-150 ${
-                        !step7Unlocked
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : activeViewSection === 'CLOSED'
-                          ? "bg-slate-900 text-white cursor-pointer"
-                          : "bg-slate-50 text-slate-800 hover:bg-slate-100 cursor-pointer"
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full pr-4 gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-inherit">Step 7: Final Reconciliation (Closed)</span>
-                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                            !step7Unlocked
-                              ? "bg-slate-200 text-slate-500"
-                              : step7Completed
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {!step7Unlocked ? "🔒 Locked" : step7Completed ? "✓ Closed" : "⏳ Open"}
-                          </span>
-                        </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                          {!step7Unlocked
-                            ? "Complete Step 6 first"
-                            : step7Completed
-                            ? "Job card closed — All stages verified"
-                            : "Ready to close"}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-inherit shrink-0">
-                        {activeViewSection === 'CLOSED' ? "Collapse [-]" : "Expand [+]"}
-                      </span>
-                    </button>
-                    
-                    {activeViewSection === 'CLOSED' && (
-                      <div className="p-6 border-t border-slate-100 bg-white space-y-6">
+                  {/* SUB-SECTION: FINAL RECONCILIATION (CLOSED) */}
+                  {activeViewSection === 'CLOSED' && (
+                    <div className="bg-white border border-slate-205 rounded-[2rem] p-6 shadow-2xs space-y-6">
                       
                       <div className="p-8 bg-emerald-50 border-2 border-emerald-300 rounded-3xl text-center space-y-4">
                         <CheckCircle className="w-16 h-16 text-emerald-600 mx-auto" />
@@ -5914,7 +5896,6 @@ export default function JobCardManager({
 
                       </div>
                     )}
-                  </div>
                   </div>
                   );
                 })()}
@@ -6276,6 +6257,113 @@ export default function JobCardManager({
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Full Screen Overlay Popup for Comparison Table */}
+      <AnimatePresence>
+        {fullscreenCompareTab && selectedCard && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 md:p-8 bg-slate-950/80 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] w-full max-w-7xl max-h-[90vh] shadow-2xl flex flex-col overflow-hidden border border-slate-200"
+            >
+              {/* Header */}
+              <div className="flex justify-between items-center px-6 py-4.5 border-b border-slate-100 bg-slate-50 shrink-0">
+                <div>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Fullscreen Workspace Mode</span>
+                  <h3 className="text-base font-black uppercase tracking-tight text-slate-900 mt-0.5 font-sans">
+                    {fullscreenCompareTab === 'QUOTATION' ? "Quotation Matrix Deck" : "Travel Approval Decision Matrix"}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFullscreenCompareTab(null)}
+                  className="w-10 h-10 border border-slate-250 hover:border-slate-800 flex items-center justify-center rounded-full text-slate-500 hover:text-slate-900 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-grow p-6 overflow-y-auto bg-slate-50/50">
+                <div className="bg-white p-4 border border-slate-200 rounded-3xl shadow-sm mb-4 text-left text-xs font-bold text-slate-700 grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <span className="text-slate-400 block text-[9px] uppercase tracking-wider">Card ID</span>
+                    <span className="text-slate-900 font-black">{selectedCard.id}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[9px] uppercase tracking-wider">Traveler</span>
+                    <span className="text-slate-900 font-black uppercase">{selectedCard.travelerName}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[9px] uppercase tracking-wider">Destination</span>
+                    <span className="text-slate-900 font-black uppercase">{selectedCard.destination}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[9px] uppercase tracking-wider">Department</span>
+                    <span className="text-slate-900 font-black uppercase">{selectedCard.department}</span>
+                  </div>
+                </div>
+
+                {renderComparisonTable(fullscreenCompareTab, true)}
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setFullscreenCompareTab(null)}
+                  className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition cursor-pointer shadow-sm"
+                >
+                  Close Screen
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Usability Confirmation Modal Overlay */}
+      <AnimatePresence>
+        {confirmModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-200 text-left"
+            >
+              <h3 className="text-base font-black text-slate-900 uppercase tracking-tight mb-2">
+                {confirmModal.title}
+              </h3>
+              <p className="text-[11px] text-slate-600 font-bold uppercase tracking-wide leading-relaxed mb-6">
+                {confirmModal.message}
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setConfirmModal(null)}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[10px] uppercase tracking-widest rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cb = confirmModal.onConfirm;
+                    setConfirmModal(null);
+                    cb();
+                  }}
+                  className="px-4 py-2.5 bg-slate-950 hover:bg-rose-600 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition cursor-pointer"
+                >
+                  {confirmModal.confirmText}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

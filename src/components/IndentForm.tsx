@@ -81,6 +81,8 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
   const [scanProgressStep, setScanProgressStep] = useState("");
   const [dragOverScanZone, setDragOverScanZone] = useState(false);
   const [showEmployeeSearch, setShowEmployeeSearch] = useState(false);
+  const [aiHighlightedFields, setAiHighlightedFields] = useState<string[]>([]);
+  const [uploadedFilePreview, setUploadedFilePreview] = useState<string | null>(null);
 
   const handleIdScan = async (file: File) => {
     setScanningId(true);
@@ -93,6 +95,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
       reader.onload = async () => {
         try {
           const base64Data = reader.result as string;
+          setUploadedFilePreview(base64Data);
           setScanProgressStep("Invoking AI OCR engine...");
           const res = await fetch("/api/job-cards/scan", {
             method: "POST",
@@ -112,20 +115,24 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
 
           setScanProgressStep("Populating employee record...");
           const data = result.scannedData;
+          const populated: string[] = [];
           
           setTravelerForm(prev => {
             const updated = { ...prev };
-            if (data.name) updated.name = data.name;
-            if (data.passportNumber) updated.passportNumber = data.passportNumber;
-            if (data.passportIssueDate) updated.passportIssueDate = data.passportIssueDate;
-            if (data.passportExpiryDate) updated.passportExpiryDate = data.passportExpiryDate;
-            if (data.aadharPanNumber) updated.aadharPanNumber = data.aadharPanNumber;
+            if (data.name) { updated.name = data.name; populated.push("name"); }
+            if (data.passportNumber) { updated.passportNumber = data.passportNumber; populated.push("passportNumber"); }
+            if (data.passportIssueDate) { updated.passportIssueDate = data.passportIssueDate; populated.push("passportIssueDate"); }
+            if (data.passportExpiryDate) { updated.passportExpiryDate = data.passportExpiryDate; populated.push("passportExpiryDate"); }
+            if (data.aadharPanNumber) { updated.aadharPanNumber = data.aadharPanNumber; populated.push("aadharPanNumber"); }
             return updated;
           });
 
+          setAiHighlightedFields(populated);
+          setTimeout(() => setAiHighlightedFields([]), 8000);
           setIdScanSuccess("ID scanned successfully! Details filled in form.");
         } catch (err: any) {
           setIdScanError(err.message || "Failed to scan the ID.");
+          setUploadedFilePreview(null);
         } finally {
           setScanningId(false);
           setScanProgressStep("");
@@ -281,20 +288,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
           profile_completed: true
         };
 
-        if (!useExistingEmployee) {
-          if (onAddEmployee) {
-            await onAddEmployee(employeePayload);
-          } else {
-            const res = await fetch("/api/employees", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(employeePayload)
-            });
-            if (!res.ok) throw new Error("Failed to add employee");
-          }
-          setSelectedEmpCode(empCode);
-          setUseExistingEmployee(true);
-        } else if (isCompletingExisting) {
+        if (isCompletingExisting) {
           if (onUpdateEmployee) {
             await onUpdateEmployee(employeePayload);
           } else {
@@ -308,6 +302,19 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
           setIsCompletingExisting(false);
           setUseExistingEmployee(true);
           setSelectedEmpCode(employeePayload.employee_code);
+        } else if (!useExistingEmployee) {
+          if (onAddEmployee) {
+            await onAddEmployee(employeePayload);
+          } else {
+            const res = await fetch("/api/employees", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(employeePayload)
+            });
+            if (!res.ok) throw new Error("Failed to add employee");
+          }
+          setSelectedEmpCode(empCode);
+          setUseExistingEmployee(true);
         }
       } catch (err: any) {
         alert("Failed to save traveler profile: " + err.message);
@@ -985,25 +992,39 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
               </div>
             ) : (
               /* NEW TRAVELER PROFILE FORM FIELDS */
-              <div className="space-y-6">
-                <div className="p-4 bg-teal-50/50 rounded-xl border border-teal-100 text-xs text-teal-800 mb-2 font-bold">
-                  Note: Registering a traveler here will automatically save them to the main employee directory.
-                </div>
+              <div className={`grid grid-cols-1 ${uploadedFilePreview ? "lg:grid-cols-12 gap-8" : "gap-6"} text-left w-full`}>
+                {/* Left Column: Document Preview */}
+                {uploadedFilePreview && (
+                  <div className="lg:col-span-5 lg:sticky lg:top-6 bg-slate-900 border border-slate-800 rounded-3xl p-4 h-[520px] flex flex-col items-center justify-center overflow-hidden">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 self-start">Document OCR Preview</span>
+                    {uploadedFilePreview.startsWith("data:application/pdf") ? (
+                      <iframe src={uploadedFilePreview} className="w-full flex-grow rounded-xl border-none" title="PDF Document Preview" />
+                    ) : (
+                      <img src={uploadedFilePreview} className="max-w-full max-h-full object-contain rounded-xl" alt="ID Document Preview" />
+                    )}
+                  </div>
+                )}
 
-                {/* ID OCR Scanner Upload Zone */}
-                <div 
-                  onDragOver={handleIdDragOver}
-                  onDragLeave={handleIdDragLeave}
-                  onDrop={handleIdDrop}
-                  className={`bg-slate-50 border-2 border-dashed ${dragOverScanZone ? "border-teal-600 bg-teal-50/55 scale-[1.01]" : "border-teal-300 hover:border-teal-500"} rounded-2xl p-6 text-center cursor-pointer transition-all relative`}
-                >
-                  {scanningId && (
-                    <div className="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center z-10">
-                      <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-2" />
-                      <span className="text-xs font-black text-teal-900 uppercase tracking-wider">{scanProgressStep}</span>
-                      <span className="text-[9px] text-slate-400 block mt-1 uppercase font-black tracking-widest">Hemraj Group Document Parsing</span>
-                    </div>
-                  )}
+                {/* Right Column: Form Fields */}
+                <div className={`space-y-6 ${uploadedFilePreview ? "lg:col-span-7" : "w-full"}`}>
+                  <div className="p-4 bg-teal-50/50 rounded-xl border border-teal-100 text-xs text-teal-850 mb-2 font-bold">
+                    Note: Registering a traveler here will automatically save them to the main employee directory.
+                  </div>
+
+                  {/* ID OCR Scanner Upload Zone */}
+                  <div 
+                    onDragOver={handleIdDragOver}
+                    onDragLeave={handleIdDragLeave}
+                    onDrop={handleIdDrop}
+                    className={`bg-slate-50 border-2 border-dashed ${dragOverScanZone ? "border-orange-500 bg-orange-50/5 scale-[1.01]" : "border-orange-300 hover:border-orange-500"} rounded-2xl p-6 text-center cursor-pointer transition-all relative`}
+                  >
+                    {scanningId && (
+                      <div className="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center z-10">
+                        <Loader2 className="w-8 h-8 text-orange-600 animate-spin mb-2" />
+                        <span className="text-xs font-black text-orange-900 uppercase tracking-wider">{scanProgressStep}</span>
+                        <span className="text-[9px] text-slate-400 block mt-1 uppercase font-black tracking-widest">Hemraj Group Document Parsing</span>
+                      </div>
+                    )}
                   <input
                     type="file"
                     id="id-scanner-upload"
@@ -1014,21 +1035,37 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                     }}
                   />
                   <label htmlFor="id-scanner-upload" className="cursor-pointer block">
-                    <Scan className="w-8 h-8 text-teal-500 mx-auto mb-2" />
+                    <Scan className="w-8 h-8 text-orange-500 mx-auto mb-2" />
                     <span className="block text-sm font-bold text-slate-700">Scan ID Document to Auto-Fill</span>
                     <span className="text-xs text-slate-500 block mt-1">Drag & drop passport or ID card (PDF/Image) here, or click to choose file</span>
                   </label>
 
-                  {idScanSuccess && (
-                    <div className="mt-3 text-xs font-bold text-teal-600 bg-teal-50 py-1.5 px-3 rounded-lg inline-block">
-                      {idScanSuccess}
-                    </div>
-                  )}
-                  {idScanError && (
-                    <div className="mt-3 text-xs font-bold text-rose-600 bg-rose-50 py-1.5 px-3 rounded-lg inline-block">
-                      {idScanError}
-                    </div>
-                  )}
+                  <div className="flex flex-wrap gap-2 justify-center mt-3">
+                    {idScanSuccess && (
+                      <div className="text-xs font-bold text-teal-600 bg-teal-50 py-1.5 px-3 rounded-lg inline-block">
+                        {idScanSuccess}
+                      </div>
+                    )}
+                    {idScanError && (
+                      <div className="text-xs font-bold text-rose-600 bg-rose-50 py-1.5 px-3 rounded-lg inline-block">
+                        {idScanError}
+                      </div>
+                    )}
+                    {uploadedFilePreview && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadedFilePreview(null);
+                          setIdScanSuccess("");
+                          setIdScanError("");
+                        }}
+                        className="text-xs font-black uppercase tracking-wider text-rose-600 bg-rose-50 hover:bg-rose-100 transition py-1.5 px-3 rounded-lg cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        Clear Upload
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Shared Traveler Information */}
@@ -1062,7 +1099,12 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                       placeholder="e.g. ABCDE1234F"
                       value={travelerForm.aadharPanNumber}
                       onChange={handleTravelerFormChange}
-                      className={`w-full bg-slate-50 border ${formErrors.traveler_aadharPanNumber ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm text-slate-800`}
+                      className={`w-full bg-slate-50 border ${
+                        formErrors.traveler_aadharPanNumber ? "border-rose-450" : 
+                        aiHighlightedFields.includes("aadharPanNumber") ? "border-amber-500 ring-2 ring-amber-500/20" : "border-slate-200"
+                      } rounded-lg px-3 py-2 text-sm text-slate-800 transition-all ${
+                        aiHighlightedFields.includes("aadharPanNumber") ? "animate-pulse" : ""
+                      }`}
                     />
                     {formErrors.traveler_aadharPanNumber && (
                       <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_aadharPanNumber}</span>
@@ -1086,7 +1128,12 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                         handleTravelerFormChange(e);
                         setShowEmployeeSearch(true);
                       }}
-                      className={`w-full bg-slate-50 border ${formErrors.traveler_name ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm font-bold`}
+                      className={`w-full bg-slate-50 border ${
+                        formErrors.traveler_name ? "border-rose-450" : 
+                        aiHighlightedFields.includes("name") ? "border-amber-500 ring-2 ring-amber-500/20" : "border-slate-200"
+                      } rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+                        aiHighlightedFields.includes("name") ? "animate-pulse" : ""
+                      }`}
                     />
                     {formErrors.traveler_name && (
                       <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_name}</span>
@@ -1840,7 +1887,12 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                               placeholder="A01234567"
                               value={travelerForm.passportNumber}
                               onChange={handleTravelerFormChange}
-                              className={`w-full bg-white border ${formErrors.traveler_passportNumber ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                              className={`w-full bg-white border ${
+                                formErrors.traveler_passportNumber ? "border-rose-450" : 
+                                aiHighlightedFields.includes("passportNumber") ? "border-amber-500 ring-2 ring-amber-500/20" : "border-slate-200"
+                              } rounded-lg px-3 py-2 text-sm transition-all ${
+                                aiHighlightedFields.includes("passportNumber") ? "animate-pulse" : ""
+                              }`}
                             />
                             {formErrors.traveler_passportNumber && (
                               <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_passportNumber}</span>
@@ -1857,7 +1909,12 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                               name="passportIssueDate"
                               value={travelerForm.passportIssueDate}
                               onChange={handleTravelerFormChange}
-                              className={`w-full bg-white border ${formErrors.traveler_passportIssueDate ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                              className={`w-full bg-white border ${
+                                formErrors.traveler_passportIssueDate ? "border-rose-450" : 
+                                aiHighlightedFields.includes("passportIssueDate") ? "border-amber-500 ring-2 ring-amber-500/20" : "border-slate-200"
+                              } rounded-lg px-3 py-2 text-sm transition-all ${
+                                aiHighlightedFields.includes("passportIssueDate") ? "animate-pulse" : ""
+                              }`}
                             />
                             {formErrors.traveler_passportIssueDate && (
                               <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_passportIssueDate}</span>
@@ -1874,7 +1931,12 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                               name="passportExpiryDate"
                               value={travelerForm.passportExpiryDate}
                               onChange={handleTravelerFormChange}
-                              className={`w-full bg-white border ${formErrors.traveler_passportExpiryDate ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2 text-sm`}
+                              className={`w-full bg-white border ${
+                                formErrors.traveler_passportExpiryDate ? "border-rose-450" : 
+                                aiHighlightedFields.includes("passportExpiryDate") ? "border-amber-500 ring-2 ring-amber-500/20" : "border-slate-200"
+                              } rounded-lg px-3 py-2 text-sm transition-all ${
+                                aiHighlightedFields.includes("passportExpiryDate") ? "animate-pulse" : ""
+                              }`}
                             />
                             {formErrors.traveler_passportExpiryDate && (
                               <span className="text-[10px] text-rose-500 mt-1 block">{formErrors.traveler_passportExpiryDate}</span>
@@ -2041,6 +2103,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                   }
                   return null;
                 })()}
+                </div>
               </div>
             )}
           </div>

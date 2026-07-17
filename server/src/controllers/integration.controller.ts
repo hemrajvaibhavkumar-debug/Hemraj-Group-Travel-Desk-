@@ -1,6 +1,7 @@
 import { Response } from "express";
 import fs from "fs";
 import path from "path";
+import { google } from "googleapis";
 import { env } from "../config/env";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import * as N8nService from "../services/n8n.service";
@@ -9,7 +10,7 @@ import * as GeminiService from "../services/gemini.service";
 
 export async function uploadFile(req: AuthenticatedRequest, res: Response) {
   try {
-    const { fileName, fileData, fileType, documentCategory } = req.body;
+    const { fileName, fileData, fileType, documentCategory, folderPath = "00_General_Uploads" } = req.body;
     if (!fileName || !fileData) {
       return res.status(400).json({ error: "Missing required upload parameters (fileName, fileData)." });
     }
@@ -17,27 +18,30 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
     const cleanName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
     const relativeUrl = `/uploads/${Date.now()}_${cleanName}`;
 
-    const ok = await N8nService.sendUploadWebhook({
+    // Route file upload directly through n8n upload webhook
+    console.log(`Routing file upload of "${fileName}" to n8n upload webhook.`);
+    const n8nResult = await N8nService.sendUploadWebhook({
       fileName,
       fileData,
-      fileType,
-      documentCategory: documentCategory || "general_document"
+      fileType: fileType || "application/octet-stream",
+      documentCategory: documentCategory || "general_uploads",
+      folderPath
     });
 
-    if (ok) {
+    if (n8nResult.success && n8nResult.url) {
       return res.status(200).json({
         success: true,
-        url: relativeUrl, // keep fallback url structure or let n8n return it
+        url: n8nResult.url,
         name: fileName,
-        message: "File uploaded to Google Drive via n8n successfully!"
+        message: "File uploaded via n8n upload webhook successfully!"
       });
     } else {
-      console.warn("N8N upload webhook failed or unconfigured, falling back to local file path mapping:", fileName);
+      console.warn("n8n upload webhook failed or unconfigured, falling back to local file path mapping:", fileName);
       return res.status(200).json({
         success: true,
         url: relativeUrl,
         name: fileName,
-        message: `Local upload fallback: Webhook Offline`
+        message: `Local upload fallback: Webhook offline`
       });
     }
   } catch (error: any) {
@@ -234,8 +238,10 @@ Do NOT include any markdown code block formatting (like \`\`\`json). Just return
 export async function getForexRates(req: AuthenticatedRequest, res: Response) {
   try {
     const rates = await ForexService.getLiveForexRates();
+    res.setHeader("Cache-Control", "public, max-age=3600"); // cache hourly forex rates
     return res.json({ rates, cached: true });
   } catch (error: any) {
+    res.setHeader("Cache-Control", "public, max-age=300"); // cache 5 min on static fallback on error
     return res.json({ rates: ForexService.getStaticRates(), cached: true, warning: error.message });
   }
 }
@@ -256,3 +262,81 @@ export async function getDbSchema(req: AuthenticatedRequest, res: Response) {
 export async function checkHealth(req: AuthenticatedRequest, res: Response) {
   return res.json({ status: "healthy", timestamp: new Date().toISOString() });
 }
+
+export async function redirectToGoogleAuth(req: AuthenticatedRequest, res: Response) {
+  try {
+    const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID || env.GOOGLE_DRIVE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET || env.GOOGLE_DRIVE_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      return res.status(400).send("Google Drive Client ID and Client Secret are not configured in your .env file.");
+    }
+
+    const redirectUri = `${req.protocol}://${req.get("host")}/api/drive/callback`;
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: "offline",
+      prompt: "consent",
+      scope: ["https://www.googleapis.com/auth/drive"]
+    });
+
+    return res.redirect(authUrl);
+  } catch (err: any) {
+    console.error("Auth redirect failed:", err.message);
+    return res.status(500).send("Auth redirect failed: " + err.message);
+  }
+}
+
+export async function handleGoogleCallback(req: AuthenticatedRequest, res: Response) {
+  try {
+    const { code } = req.query;
+    if (!code) {
+      return res.status(400).send("Authorization code is missing.");
+    }
+
+    const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID || env.GOOGLE_DRIVE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET || env.GOOGLE_DRIVE_CLIENT_SECRET;
+
+    const redirectUri = `${req.protocol}://${req.get("host")}/api/drive/callback`;
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+
+    const { tokens } = await oauth2Client.getToken(code as string);
+    const refreshToken = tokens.refresh_token;
+
+    if (!refreshToken) {
+      return res.status(400).send("Failed to retrieve a refresh token. If you authorized this app previously, Google might not return a refresh token unless you revoke access or add prompt='consent' (which we force). Please try again.");
+    }
+
+    // Update process.env immediately so it is hot-reloaded
+    process.env.GOOGLE_DRIVE_REFRESH_TOKEN = refreshToken;
+
+    // Write directly to .env
+    const envPath = path.join(process.cwd(), ".env");
+    if (fs.existsSync(envPath)) {
+      let content = fs.readFileSync(envPath, "utf-8");
+      if (content.includes("GOOGLE_DRIVE_REFRESH_TOKEN=")) {
+        content = content.replace(/GOOGLE_DRIVE_REFRESH_TOKEN=.*?\n/, `GOOGLE_DRIVE_REFRESH_TOKEN="${refreshToken}"\n`);
+      } else {
+        content += `\nGOOGLE_DRIVE_REFRESH_TOKEN="${refreshToken}"\n`;
+      }
+      fs.writeFileSync(envPath, content, "utf-8");
+    }
+
+    return res.send(`
+      <div style="font-family: system-ui, sans-serif; max-width: 500px; margin: 80px auto; padding: 40px; border: 2px solid #000; border-radius: 24px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.1);">
+        <div style="font-size: 48px; margin-bottom: 20px;">🎉</div>
+        <h2 style="text-transform: uppercase; font-weight: 900; margin-top: 0; color: #10b981;">Connected!</h2>
+        <p style="font-weight: 600; color: #4b5563; font-size: 14px; line-height: 1.6;">Google Drive direct integration is configured successfully! The Refresh Token has been written to your <code>.env</code> file.</p>
+        <div style="background: #f3f4f6; padding: 15px; border-radius: 12px; font-family: monospace; font-size: 11px; word-break: break-all; margin: 20px 0; text-align: left; border: 1px solid #e5e7eb;">
+          <strong>Refresh Token:</strong><br/>${refreshToken}
+        </div>
+        <button onclick="window.close()" style="background: #000; color: #fff; border: none; padding: 12px 24px; font-weight: 900; border-radius: 12px; cursor: pointer; text-transform: uppercase; font-size: 10px; letter-spacing: 0.1em; transition: 0.1s;">Close Window</button>
+      </div>
+    `);
+  } catch (err: any) {
+    console.error("OAuth callback failed:", err.message);
+    return res.status(500).send("OAuth callback failed: " + err.message);
+  }
+}
+

@@ -25,14 +25,28 @@ import { prisma } from "./src/db/prisma";
 import { env } from "./server/src/config/env";
 import apiRouter from "./server/src/routes";
 import { hashPassword } from "./server/src/controllers/auth.controller";
+import compression from "compression";
+import { rateLimit } from "express-rate-limit";
 
 const app = express();
 const PORT = env.PORT;
 
+// Enable response compression (gzip/deflate)
+app.use(compression());
+
+// Define a general API rate limiter: max 150 requests per minute
+const globalRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 150,
+  message: { error: "Too many requests from this IP. Please try again after 1 minute." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.use(express.json({ limit: "15mb" }));
 
-// Mount all API endpoints under /api
-app.use("/api", apiRouter);
+// Mount all API endpoints under /api with rate limiting
+app.use("/api", globalRateLimiter, apiRouter);
 
 // Baseline default data in case Postgres database is empty
 const DEFAULT_DB_DATA = {

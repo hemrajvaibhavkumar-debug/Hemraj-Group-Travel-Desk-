@@ -28,6 +28,8 @@ export default function EmployeesDashboard({
   const [activeFormTab, setActiveFormTab] = useState<'corporate' | 'domestic' | 'international'>('corporate');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxTitle, setLightboxTitle] = useState("");
 
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -691,14 +693,16 @@ export default function EmployeesDashboard({
                                       referrerPolicy="no-referrer"
                                       className="w-full h-full object-cover"
                                     />
-                                    <a 
-                                      href={emp.photograph_url} 
-                                      target="_blank" 
-                                      rel="noreferrer"
-                                      className="absolute inset-0 bg-slate-950/60 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition duration-150"
+                                    <button 
+                                      type="button"
+                                      onClick={() => {
+                                        setLightboxUrl(emp.photograph_url || "");
+                                        setLightboxTitle(`${emp.name} - Profile Photograph`);
+                                      }}
+                                      className="absolute inset-0 bg-slate-950/60 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition duration-150 cursor-pointer border-none"
                                     >
-                                      <ExternalLink className="w-4 h-4" />
-                                    </a>
+                                      <ExternalLink className="w-4 h-4 text-orange-500" />
+                                    </button>
                                   </div>
                                 </div>
                               )}
@@ -737,15 +741,17 @@ export default function EmployeesDashboard({
                               {emp.supporting_documents_url && (
                                 <div className="pt-2">
                                   <span className="text-slate-400 block text-[9px] uppercase mb-1.5">Supporting Documents</span>
-                                  <a 
-                                    href={emp.supporting_documents_url} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-800 transition duration-100"
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      setLightboxUrl(emp.supporting_documents_url || "");
+                                      setLightboxTitle(`${emp.name} - Supporting Documents`);
+                                    }}
+                                    className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg hover:border-orange-500 hover:text-slate-900 transition duration-100 w-full text-left cursor-pointer"
                                   >
-                                    <FileText className="w-3.5 h-3.5 text-slate-500" />
-                                    <span className="text-[9px] text-slate-600 truncate normal-case">Attachment ID Proof.pdf</span>
-                                  </a>
+                                    <FileText className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                    <span className="text-[9px] text-slate-650 truncate normal-case font-black">View Attachment ID Proof</span>
+                                  </button>
                                 </div>
                               )}
                             </div>
@@ -791,26 +797,30 @@ export default function EmployeesDashboard({
 
                               <div className="grid grid-cols-2 gap-2 pt-2">
                                 {emp.passport_front_page_url && (
-                                  <a 
-                                    href={emp.passport_front_page_url} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="flex items-center gap-1.5 p-1.5 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-800 transition text-[8px] text-slate-600 truncate normal-case"
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      setLightboxUrl(emp.passport_front_page_url || "");
+                                      setLightboxTitle(`${emp.name} - Passport Front Page`);
+                                    }}
+                                    className="flex items-center gap-1.5 p-1.5 bg-slate-50 border border-slate-200 rounded-lg hover:border-orange-500 hover:text-slate-900 transition text-[8px] text-slate-650 truncate normal-case cursor-pointer text-left font-black"
                                   >
                                     <FileText className="w-3 h-3 text-slate-400 shrink-0" />
-                                    <span>Passport Front.png</span>
-                                  </a>
+                                    <span>Passport Front Page</span>
+                                  </button>
                                 )}
                                 {emp.passport_back_page_url && (
-                                  <a 
-                                    href={emp.passport_back_page_url} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="flex items-center gap-1.5 p-1.5 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-800 transition text-[8px] text-slate-600 truncate normal-case"
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      setLightboxUrl(emp.passport_back_page_url || "");
+                                      setLightboxTitle(`${emp.name} - Passport Back Page`);
+                                    }}
+                                    className="flex items-center gap-1.5 p-1.5 bg-slate-50 border border-slate-200 rounded-lg hover:border-orange-500 hover:text-slate-900 transition text-[8px] text-slate-650 truncate normal-case cursor-pointer text-left font-black"
                                   >
                                     <FileText className="w-3 h-3 text-slate-400 shrink-0" />
-                                    <span>Passport Back.png</span>
-                                  </a>
+                                    <span>Passport Back Page</span>
+                                  </button>
                                 )}
                               </div>
                             </div>
@@ -1583,6 +1593,34 @@ export default function EmployeesDashboard({
             </form>
 
           </div>
+        </div>
+      )}
+
+      {lightboxUrl && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-6 z-[80] animate-fade-in">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl overflow-hidden max-w-4xl w-full max-h-[85vh] flex flex-col shadow-2xl relative border-2 border-slate-900"
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
+              <span className="text-xs font-black uppercase tracking-wider text-slate-900">{lightboxTitle}</span>
+              <button
+                type="button"
+                onClick={() => { setLightboxUrl(null); setLightboxTitle(""); }}
+                className="text-slate-400 hover:text-slate-900 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-grow p-6 overflow-auto flex items-center justify-center bg-slate-900">
+              {lightboxUrl.startsWith("data:application/pdf") || lightboxUrl.endsWith(".pdf") ? (
+                <iframe src={lightboxUrl} className="w-full h-[60vh] rounded-xl border-none" title="Document Lightbox" />
+              ) : (
+                <img src={lightboxUrl} className="max-w-full max-h-[60vh] object-contain rounded-xl" alt="Document Zoomed" />
+              )}
+            </div>
+          </motion.div>
         </div>
       )}
 

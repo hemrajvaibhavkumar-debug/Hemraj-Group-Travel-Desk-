@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from "react";
 import { TravelIndent, Employee, PriorityLevel, TravelCategory, JobCard, Vendor } from "../types";
 import EmployeeProfileModal from "./EmployeeProfileModal";
+import IndentForm from "./IndentForm";
 import { 
   Briefcase, Compass, Users, FileText, Database, Search, Filter, 
   Trash2, Edit, AlertCircle, Calendar, MapPin, BadgeHelp, Check, 
   MessageSquare, Loader2, ArrowUpRight, TrendingUp, HelpCircle, ArrowRight, FileCheck2,
-  Building2, Banknote
+  Building2, Banknote, X
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { usePersistedState } from "../hooks/usePersistedState";
@@ -24,6 +25,9 @@ interface IndentConsoleProps {
   onUpdateVendor: (vendor: Vendor) => Promise<void>;
   onCreateNewClick: () => void;
   onApproveAndCreateJobCard?: (indent: TravelIndent) => Promise<void>;
+  onSubmitIndent?: (indent: Partial<TravelIndent>, employee?: Employee) => Promise<void>;
+  onAddEmployee?: (employee: Employee) => Promise<void>;
+  onUpdateEmployee?: (employee: Employee) => Promise<void>;
 }
 
 export default function IndentConsole({ 
@@ -39,12 +43,18 @@ export default function IndentConsole({
   onDeleteVendor,
   onUpdateVendor,
   onCreateNewClick,
-  onApproveAndCreateJobCard
+  onApproveAndCreateJobCard,
+  onSubmitIndent,
+  onAddEmployee,
+  onUpdateEmployee
 }: IndentConsoleProps) {
   // Filters & Search state
   const [searchQuery, setSearchQuery] = usePersistedState("indent-console-search-query", "");
   const [selectedCategory, setSelectedCategory] = usePersistedState("indent-console-category", "ALL");
   const [selectedPriority, setSelectedPriority] = usePersistedState("indent-console-priority", "ALL");
+  
+  // Drawer draft selection state
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   
   // Edit Indent state
   const [editingIndent, setEditingIndent] = useState<TravelIndent | null>(null);
@@ -70,19 +80,30 @@ export default function IndentConsole({
     fetchPublicRequests();
   }, []);
 
-  const handleRejectRequest = async (id: string) => {
-    if (!confirm("Are you sure you want to reject and archive this request?")) return;
+  // Request Rejection states
+  const [rejectingRequestId, setRejectingRequestId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [submittingRejection, setSubmittingRejection] = useState(false);
+
+  const handleConfirmRejection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rejectingRequestId) return;
+    setSubmittingRejection(true);
     try {
-      const res = await fetch(`/api/public-requests/${id}`, {
+      const res = await fetch(`/api/public-requests/${rejectingRequestId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "REJECTED" })
+        body: JSON.stringify({ status: "REJECTED", reason: rejectionReason.trim() || "Rejected by Travel Desk Admin" })
       });
       if (res.ok) {
-        setPublicRequests(prev => prev.filter(r => r.id !== id));
+        setPublicRequests(prev => prev.filter(r => r.id !== rejectingRequestId));
+        setRejectingRequestId(null);
+        setRejectionReason("");
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setSubmittingRejection(false);
     }
   };
   const [editForm, setEditForm] = useState<Partial<TravelIndent>>({});
@@ -206,7 +227,49 @@ export default function IndentConsole({
   };
 
   return (
-    <div id="indent-console-panel" className="space-y-6">
+    <div id="indent-console-panel" className="space-y-6 text-left">
+      {/* Redesigned Metric Cards Panel */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="premium-card flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Total Indents</span>
+            <span className="text-2xl font-black text-slate-900 leading-tight">{stats.totalIndents}</span>
+          </div>
+          <div className="w-10 h-10 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-center text-slate-600">
+            <FileText className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="premium-card flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Urgent Priorities</span>
+            <span className="text-2xl font-black text-rose-600 leading-tight">{stats.criticalCount}</span>
+          </div>
+          <div className="w-10 h-10 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-center text-rose-600">
+            <AlertCircle className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="premium-card flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Traveler Directory</span>
+            <span className="text-2xl font-black text-slate-900 leading-tight">{stats.employeesCount}</span>
+          </div>
+          <div className="w-10 h-10 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-center text-slate-600">
+            <Users className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="premium-card flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Approved Spend</span>
+            <span className="text-xl font-mono font-black text-emerald-600 leading-tight">₹{stats.totalApprovedAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+          </div>
+          <div className="w-10 h-10 bg-emerald-50 border border-emerald-250 rounded-xl flex items-center justify-center text-emerald-600">
+            <Banknote className="w-5 h-5" />
+          </div>
+        </div>
+      </div>
 
       {/* UPSIDE SECTION: PUBLIC REQUESTS INTAKE DATATABLE */}
       <div className="bg-white border-2 border-slate-900 rounded-3xl p-6 md:p-8 shadow-xs space-y-6">
@@ -241,7 +304,7 @@ export default function IndentConsole({
           </div>
         ) : (
           <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
-            <table className="w-full text-left border-collapse text-xs font-semibold text-slate-700">
+            <table className="w-full text-left border-collapse text-xs font-semibold text-slate-705 premium-table">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr className="text-[9px] font-black text-slate-950 uppercase tracking-widest">
                   <th className="px-5 py-3">ID</th>
@@ -279,12 +342,11 @@ export default function IndentConsole({
                       )}
                     </td>
                     <td className="px-5 py-3.5">
-                      <span className={`inline-block px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
-                        req.travel_type === "FLIGHT" ? "bg-blue-50 text-blue-800 border-blue-200" :
-                        req.travel_type === "TRAIN" ? "bg-amber-50 text-amber-800 border-amber-200" :
-                        req.travel_type === "CAB" ? "bg-purple-50 text-purple-800 border-purple-200" :
-                        "bg-slate-50 text-slate-800 border-slate-200"
-                      }`}>
+                      <span className={
+                        req.travel_type === "FLIGHT" || req.travel_type === "DOMESTIC" || req.travel_type === "INTERNATIONAL" ? "status-pill-blue" :
+                        req.travel_type === "TRAIN" ? "status-pill-amber" :
+                        req.travel_type === "CAB" ? "status-pill-gray" : "status-pill-gray"
+                      }>
                         {req.travel_type}
                       </span>
                     </td>
@@ -298,7 +360,7 @@ export default function IndentConsole({
                         <button
                           type="button"
                           onClick={() => {
-                            window.location.hash = `#/create/${req.id}`;
+                            setActiveDraftId(req.id);
                           }}
                           className="px-2.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition cursor-pointer flex items-center gap-1 shadow-2xs"
                         >
@@ -307,7 +369,7 @@ export default function IndentConsole({
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleRejectRequest(req.id)}
+                          onClick={() => setRejectingRequestId(req.id)}
                           className="px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-rose-50 text-rose-600 rounded-lg text-[9px] font-black uppercase tracking-wider transition cursor-pointer"
                         >
                           Reject
@@ -387,7 +449,7 @@ export default function IndentConsole({
           </div>
         ) : (
           <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
-            <table className="w-full text-left border-collapse text-xs font-medium text-slate-700">
+            <table className="w-full text-left border-collapse text-xs font-medium text-slate-705 premium-table">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr className="text-[9px] font-black text-slate-950 uppercase tracking-widest">
                   <th className="px-6 py-4">Indent ID</th>
@@ -405,14 +467,14 @@ export default function IndentConsole({
                   const hasJobCard = jobCards.some(jc => jc.indentId === indent.id);
                   const isVoided = indent.voided;
                   
-                  let badgeColor = "bg-amber-100 text-amber-800 border-amber-200";
+                  let badgeColor = "status-pill-amber";
                   let statusLabel = "PENDING REVIEW";
                   
                   if (isVoided) {
-                    badgeColor = "bg-rose-100 text-rose-800 border-rose-200";
+                    badgeColor = "status-pill-red";
                     statusLabel = "VOIDED";
                   } else if (hasJobCard) {
-                    badgeColor = "bg-emerald-100 text-emerald-800 border-emerald-200";
+                    badgeColor = "status-pill-green";
                     statusLabel = "JOB CARD ACTIVE";
                   }
 
@@ -439,16 +501,16 @@ export default function IndentConsole({
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="bg-slate-100 text-slate-900 px-2 py-0.5 rounded text-[8px] font-black tracking-wider">
+                        <span className="status-pill-blue">
                           {indent.travel_type}
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`px-2 py-0.5 rounded text-[8px] font-black tracking-widest ${
-                          indent.priority === "CRITICAL" ? "bg-rose-600 text-white" :
-                          indent.priority === "HIGH" ? "bg-orange-500 text-white" :
-                          indent.priority === "MEDIUM" ? "bg-blue-600 text-white" : "bg-slate-400 text-white"
-                        }`}>
+                        <span className={
+                          indent.priority === "CRITICAL" ? "status-pill-red" :
+                          indent.priority === "HIGH" ? "status-pill-amber" :
+                          indent.priority === "MEDIUM" ? "status-pill-blue" : "status-pill-gray"
+                        }>
                           {indent.priority}
                         </span>
                       </td>
@@ -456,7 +518,7 @@ export default function IndentConsole({
                         {indent.travel_date}
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`px-2 py-1 rounded text-[8px] font-black border uppercase tracking-widest ${badgeColor}`}>
+                        <span className={badgeColor}>
                           {statusLabel}
                         </span>
                       </td>
@@ -703,6 +765,57 @@ export default function IndentConsole({
             </motion.div>
           </div>
         )}
+
+        {rejectingRequestId && (
+          <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 z-[60]">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl max-w-md w-full p-8 border-2 border-slate-900 shadow-2xl relative text-left"
+            >
+              <h3 className="text-lg font-black uppercase tracking-tighter text-slate-900 mb-2 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-rose-500" />
+                Reject Intake Request
+              </h3>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-4 leading-relaxed">
+                Provide a reason for rejecting public request ID: <span className="text-slate-900 font-mono font-black">{rejectingRequestId}</span>.
+                This will archive the request and remove it from the travel desk intake queue.
+              </p>
+
+              <form onSubmit={handleConfirmRejection} className="space-y-5 text-xs font-bold text-slate-800">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Reason for Rejection *</label>
+                  <textarea
+                    rows={3}
+                    required
+                    placeholder="e.g. Duplicate request, budget cap exceeded, or invalid approver information"
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-3 font-bold text-xs"
+                  ></textarea>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => { setRejectingRequestId(null); setRejectionReason(""); }}
+                    className="px-4 py-2.5 text-slate-400 hover:text-slate-900 font-black text-[10px] uppercase tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingRejection}
+                    className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] uppercase tracking-widest px-5 py-2.5 rounded-full shadow-lg"
+                  >
+                    {submittingRejection ? "Rejecting..." : "Confirm Rejection"}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
       {profileEmployee && (
@@ -711,6 +824,62 @@ export default function IndentConsole({
           onClose={() => setProfileEmployee(null)} 
         />
       )}
+
+      {/* Sliding Right Side Drawer for Completing Requests */}
+      <AnimatePresence>
+        {activeDraftId && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setActiveDraftId(null)}
+              className="fixed inset-0 bg-slate-950 z-50 cursor-pointer"
+            />
+            {/* Drawer */}
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed right-0 top-0 bottom-0 w-full max-w-4xl bg-white shadow-2xl z-[60] border-l border-slate-200 overflow-y-auto flex flex-col p-6 text-left"
+            >
+              <div className="flex justify-between items-center pb-4 border-b border-slate-150 mb-6 shrink-0">
+                <div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Workspace Drawer</span>
+                  <h3 className="text-base font-black uppercase tracking-tight text-slate-900 mt-0.5 font-sans">Complete Indent Request</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveDraftId(null)}
+                  className="w-10 h-10 border border-slate-250 flex items-center justify-center rounded-full text-slate-500 hover:text-slate-900 hover:border-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-grow">
+                <IndentForm
+                  employees={employees}
+                  draftId={activeDraftId}
+                  onSubmit={async (indentData, employeeData) => {
+                    if (onSubmitIndent) {
+                      await onSubmitIndent(indentData, employeeData);
+                      // After submitting successfully, remove from public requests queue
+                      setPublicRequests(prev => prev.filter(r => r.id !== activeDraftId));
+                      setActiveDraftId(null);
+                    }
+                  }}
+                  onCancel={() => setActiveDraftId(null)}
+                  onAddEmployee={onAddEmployee}
+                  onUpdateEmployee={onUpdateEmployee}
+                />
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

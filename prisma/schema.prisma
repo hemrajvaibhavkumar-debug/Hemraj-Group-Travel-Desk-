@@ -186,22 +186,25 @@ model JobCard {
 }
 
 model Booking {
-  id                      String    @id @default(uuid())
-  jobCardId               String    @unique
-  bookingPNR              String?
-  bookingVendor           String?
-  finalBookingAmount      Float?
-  bookingCurrency         String?
-  ticketFileUrl           String?
-  ticketFileName          String?
-  ticketVendorInvoiceUrl  String?
-  ticketVendorInvoiceName String?
-  bookingRecordedAt       String?
+  id                           String    @id @default(uuid())
+  jobCardId                    String    @unique
+  bookingPNR                   String?
+  bookingVendor                String?
+  finalBookingAmount           Float?
+  bookingCurrency              String?
+  ticketFileUrl                String?
+  ticketFileName               String?
+  ticketVendorInvoiceUrl       String?
+  ticketVendorInvoiceName      String?
+  cancellationChargesReturn    Float?
+  cancellationReturnTicketUrl  String?
+  cancellationReturnTicketName String?
+  bookingRecordedAt            String?
   
-  jobCard                 JobCard   @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCard                      JobCard   @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
   
-  created_at              DateTime  @default(now())
-  updated_at              DateTime  @updatedAt
+  created_at                   DateTime  @default(now())
+  updated_at                   DateTime  @updatedAt
 }
 
 model Invoice {
@@ -290,6 +293,9 @@ model JobCardQuote {
   selectedPhones Json?
   travelType     String?
   visaType       String?
+  cancellationChargesReturn    Float?
+  cancellationReturnTicketUrl  String?
+  cancellationReturnTicketName String?
 
   // Relations
   jobCard        JobCard   @relation(fields: [jobCardId], references: [id], onDelete: Cascade)

@@ -119,6 +119,9 @@ export interface JobCardQuote {
   selectedPhones?: string[];
   travelType?: string;
   visaType?: string;
+  cancellationChargesReturn?: number;
+  cancellationReturnTicketUrl?: string;
+  cancellationReturnTicketName?: string;
 }
 
 export interface AuditLogEntry {
@@ -157,6 +160,9 @@ export interface JobCard {
   ticketFileName?: string;
   ticketVendorInvoiceUrl?: string;
   ticketVendorInvoiceName?: string;
+  cancellationChargesReturn?: number;
+  cancellationReturnTicketUrl?: string;
+  cancellationReturnTicketName?: string;
   bookingRecordedAt?: string;
   
   // Financial Reconciliation

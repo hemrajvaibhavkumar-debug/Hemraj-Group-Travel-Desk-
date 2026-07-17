@@ -28,7 +28,10 @@ const envSchema = z.object({
   N8N_WEBHOOK_URL: z.string().url().optional().or(z.literal("")),
   N8N_WORKORDER_WEBHOOK_URL: z.string().url().optional().or(z.literal("")),
   N8N_UPLOAD_WEBHOOK_URL: z.string().url().optional().or(z.literal("")),
-  FASTAPI_URL: z.string().url().optional().default("http://localhost:8000")
+  FASTAPI_URL: z.string().url().optional().default("http://localhost:8000"),
+  GOOGLE_DRIVE_CLIENT_ID: z.string().optional().default(""),
+  GOOGLE_DRIVE_CLIENT_SECRET: z.string().optional().default(""),
+  GOOGLE_DRIVE_REFRESH_TOKEN: z.string().optional().default("")
 });
 
 const parsed = envSchema.safeParse(process.env);

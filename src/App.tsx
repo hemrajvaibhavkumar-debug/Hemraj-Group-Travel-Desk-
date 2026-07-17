@@ -227,7 +227,7 @@ export default function App() {
       setCurrentView("dashboard");
       
       // Auto dismiss success toast
-      setTimeout(() => setSuccessText(""), 5000);
+      setTimeout(() => setSuccessText(""), 3000);
     } catch (err: any) {
       setErrorText(err.message || "Unknown error creating travel indent.");
       throw err; // throw back to let form stop spinner
@@ -254,7 +254,7 @@ export default function App() {
       setIndents(prev => prev.map(i => i.id === indent.id ? data.indent : i));
       
       // Auto dismiss
-      setTimeout(() => setSuccessText(""), 5000);
+      setTimeout(() => setSuccessText(""), 3000);
     } catch (err: any) {
       setErrorText(err.message || "Failed saving indent updates.");
       throw err;
@@ -277,7 +277,7 @@ export default function App() {
 
       setSuccessText(`Deleted Travel Indent ${id} successfully.`);
       setIndents(prev => prev.filter(i => i.id !== id));
-      setTimeout(() => setSuccessText(""), 4000);
+      setTimeout(() => setSuccessText(""), 3000);
     } catch (err: any) {
       setErrorText(err.message || "Failed to remove entry.");
     }
@@ -287,7 +287,7 @@ export default function App() {
   const handleApproveAndCreateJobCard = async (indent: TravelIndent) => {
     if (activeRole === 'TRAVEL_DESK') {
       setErrorText("Access Denied: Only authorized TRAVEL_APPROVER or VP_COMMERCIAL can approve this travel indent.");
-      setTimeout(() => setErrorText(""), 5000);
+      setTimeout(() => setErrorText(""), 3000);
       return;
     }
     setErrorText("");
@@ -314,10 +314,10 @@ export default function App() {
       setCurrentView("jobcards");
       
       // Auto dismiss
-      setTimeout(() => setSuccessText(""), 5000);
+      setTimeout(() => setSuccessText(""), 3000);
     } catch (err: any) {
       setErrorText(err.message || "Failed directing approved indent to Job Card.");
-      setTimeout(() => setErrorText(""), 6000);
+      setTimeout(() => setErrorText(""), 3000);
     }
   };
 
@@ -338,7 +338,7 @@ export default function App() {
       }
       setEmployees(prev => prev.map(e => e.employee_code === employee.employee_code ? data.employee : e));
       setSuccessText(`Successfully upgraded compliance metrics for ${employee.name}!`);
-      setTimeout(() => setSuccessText(""), 5000);
+      setTimeout(() => setSuccessText(""), 3000);
     } catch (err: any) {
       setErrorText(err.message || "Failed to upgrade employee compliance passport details.");
       throw err;
@@ -359,7 +359,7 @@ export default function App() {
       
       setEmployees(prev => [data.employee, ...prev]);
       setSuccessText(`Employee ${employee.name} added successfully!`);
-      setTimeout(() => setSuccessText(""), 5000);
+      setTimeout(() => setSuccessText(""), 3000);
     } catch (err: any) {
       setErrorText(err.message || "Failed to add employee.");
       throw err;
@@ -382,7 +382,7 @@ export default function App() {
       }
       setEmployees(prev => prev.filter(e => e.employee_code !== employeeCode));
       setSuccessText(`Employee ${employeeCode} deleted successfully.`);
-      setTimeout(() => setSuccessText(""), 4000);
+      setTimeout(() => setSuccessText(""), 3000);
     } catch (err: any) {
       setErrorText(err.message || "Failed to remove employee entry.");
     }
@@ -400,7 +400,7 @@ export default function App() {
       
       setVendors(prev => prev.filter(v => v.id !== id));
       setSuccessText(`Vendor Partner ${id} removed successfully.`);
-      setTimeout(() => setSuccessText(""), 4000);
+      setTimeout(() => setSuccessText(""), 3000);
     } catch (err: any) {
       setErrorText(err.message || "Failed to remove vendor.");
     }
@@ -422,7 +422,7 @@ export default function App() {
       
       setVendors(prev => prev.map(v => v.id === vendor.id ? data.vendor : v));
       setSuccessText(`Vendor Details for ${vendor.name} syncronized!`);
-      setTimeout(() => setSuccessText(""), 5000);
+      setTimeout(() => setSuccessText(""), 3000);
     } catch (err: any) {
       setErrorText(err.message || "Failed to update vendor.");
     }
@@ -862,6 +862,9 @@ export default function App() {
                     onUpdateVendor={handleUpdateVendor}
                     onCreateNewClick={() => setCurrentView("create")}
                     onApproveAndCreateJobCard={handleApproveAndCreateJobCard}
+                    onSubmitIndent={handleCreateIndent}
+                    onAddEmployee={handleAddEmployee}
+                    onUpdateEmployee={handleUpdateEmployee}
                   />
                 ) : (
                   <Suspense fallback={

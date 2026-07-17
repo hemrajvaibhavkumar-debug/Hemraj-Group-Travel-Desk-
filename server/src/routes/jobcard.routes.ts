@@ -8,6 +8,6 @@ router.get("/", requireAuth("VIEW_INDENTS"), JobCardController.getAllJobCards);
 router.post("/", requireAuth("CREATE_INDENT"), JobCardController.createJobCard);
 router.put("/:id", requireAuth("VIEW_INDENTS"), JobCardController.updateJobCard);
 router.post("/:id/reschedule", requireAuth("VIEW_INDENTS"), JobCardController.rescheduleJobCard);
-router.delete("/:id", requireAuth("MANAGE_SETTINGS"), JobCardController.deleteJobCard);
+router.delete("/:id", requireAuth("VIEW_INDENTS"), JobCardController.deleteJobCard);
 
 export default router;

@@ -66,6 +66,11 @@ export async function sendUploadWebhook(payload: {
 
   try {
     console.log(`Routing file upload of kind "${payload.documentCategory}" to n8n upload webhook:`, payload.fileName);
+
+    // Strip Data URL scheme if present (e.g., data:application/pdf;base64,)
+    const base64Clean = payload.fileData.replace(/^data:[^;]+;base64\s*,\s*/i, "");
+    console.log(`[n8n Upload Webhook] Base64 sanitization check - has prefix: ${payload.fileData.startsWith("data:")}, clean string start: "${base64Clean.substring(0, 25)}..."`);
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
     const response = await fetch(webhookUrl, {
@@ -73,7 +78,7 @@ export async function sendUploadWebhook(payload: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         fileName: payload.fileName,
-        fileData: payload.fileData, // base64 encoded
+        fileData: base64Clean, // clean base64 string
         fileType: payload.fileType,
         mimeType: payload.fileType || "application/octet-stream",
         documentCategory: payload.documentCategory,
