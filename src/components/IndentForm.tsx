@@ -12,14 +12,11 @@ interface IndentFormProps {
 }
 
 export default function IndentForm({ employees, draftId, onSubmit, onCancel, onAddEmployee, onUpdateEmployee }: IndentFormProps) {
-  // Toggle traveler sourcing
   const [useExistingEmployee, setUseExistingEmployee] = useState<boolean>(true);
   const [selectedEmpCode, setSelectedEmpCode] = useState<string>("");
-  const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isCompletingExisting, setIsCompletingExisting] = useState<boolean>(false);
   const [completingEmpCode, setCompletingEmpCode] = useState<string>("");
-  const [isSavingEmployee, setIsSavingEmployee] = useState<boolean>(false);
   
   // Validation State
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -161,228 +158,6 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
     setDragOverScanZone(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleIdScan(e.dataTransfer.files[0]);
-    }
-  };
-
-  const nextStep = async () => {
-    const section2Errors = validateSection2();
-    if (Object.keys(section2Errors).length > 0) {
-      setFormErrors(section2Errors);
-      return;
-    }
-    
-    setFormErrors({});
-    
-    // Enforce traveler profile completion if an incomplete existing employee is selected
-    if (useExistingEmployee && !isCompletingExisting) {
-      const emp = employees.find(e => e.employee_code === selectedEmpCode);
-      if (emp && !emp.profile_completed) {
-        setUseExistingEmployee(false);
-        setIsCompletingExisting(true);
-        setCompletingEmpCode(emp.employee_code);
-
-        setTravelerForm(prev => ({
-          ...prev,
-          employeeId: emp.employee_code,
-          aadharPanNumber: emp.aadhar_pan_number || "",
-          name: emp.name || "",
-          email: emp.email || "",
-          phone: emp.phone || "",
-          designation: emp.designation || "",
-          department: (emp.department as Department) || "Purchase",
-          defaultTravelApprover: emp.default_travel_approver || "",
-          approverDesignation: emp.approver_designation || "",
-          costCentre: emp.cost_centre || "",
-          defaultBillingCurrency: (emp.default_billing_currency as BillingCurrency) || "INR",
-          nativeCity: emp.native_city || "",
-          nearestAirport: emp.nearest_airport || "",
-          nearestRailwayStation: emp.nearest_railway_station || "",
-          defaultModeOfTransport: emp.default_mode_of_transport || "",
-          extraBaggageRequired: emp.extra_baggage_required || false,
-          photographUrl: emp.photograph_url || "",
-          supportingDocumentsUrl: emp.supporting_documents_url || "",
-          presentLocationAbroad: emp.present_location_abroad || "",
-          assignedPlantSite: emp.assigned_plant_site || "",
-          nearestAirportIndia: emp.nearest_airport_india || "",
-          passportNumber: emp.passport_number || "",
-          passportIssueDate: emp.passport_issue_date || "",
-          passportExpiry: emp.passport_expiry || "",
-          polioVaccineStatus: emp.polio_vaccine_status || "Vaccinated",
-          polioCertificateExpiry: emp.polio_certificate_expiry || "",
-          yfvStatus: emp.yfv_status || "Vaccinated",
-          yfvCertificateExpiry: emp.yfv_certificate_expiry || "",
-          visaNumber: emp.visa_number || "",
-          visaExpiryDate: emp.visa_expiry_date || "",
-          visaCountry: emp.visa_country || "",
-          trainPreferredClass: emp.train_preferred_class || "",
-          trainBerthPreference: emp.train_berth_preference || "",
-          trainMealPreference: emp.train_meal_preference || "",
-          trainPreferredNumber: emp.train_preferred_number || "",
-        }));
-        return;
-      }
-    }
-
-    // Save/update the employee in the database if registering new or completing existing
-    const shouldSaveEmployee = !useExistingEmployee || isCompletingExisting;
-
-    if (shouldSaveEmployee) {
-      setIsSavingEmployee(true);
-      try {
-        const empCode = travelerForm.employeeId.trim() || "EMP-" + Math.floor(1000 + Math.random() * 9000);
-        const aadharPan = travelerForm.aadharPanNumber.trim() || "PAN-MOCK-" + Math.floor(10000 + Math.random() * 90000);
-        const fullName = travelerForm.name.trim() || "Guest Traveler";
-        const emailAddress = travelerForm.email.trim() || `guest.${Math.floor(1000 + Math.random() * 9000)}@hemrajgroup.com`;
-        const phoneNumber = travelerForm.phone.trim() || "+91 00000 00000";
-        const roleDesignation = travelerForm.designation.trim() || "Executive";
-        const dept = travelerForm.department.trim() || "Purchase";
-        const approver = travelerForm.defaultTravelApprover.trim() || "Rohit ji";
-        const appTitle = travelerForm.approverDesignation.trim() || "Chief Operating Officer";
-        const billingCost = travelerForm.costCentre.trim() || "HEM-GEN";
-
-        const employeePayload: Employee = {
-          employee_code: empCode,
-          aadhar_pan_number: aadharPan,
-          name: fullName,
-          email: emailAddress,
-          phone: phoneNumber,
-          designation: roleDesignation,
-          department: dept,
-          default_travel_approver: approver,
-          approver_designation: appTitle,
-          cost_centre: billingCost,
-          default_billing_currency: travelerForm.defaultBillingCurrency || "INR",
-          
-          // Domestic
-          native_city: travelerForm.baseCity || undefined,
-          nearest_airport: travelerForm.nearestAirport || undefined,
-          nearest_railway_station: travelerForm.nearestRailwayStation || undefined,
-          default_mode_of_transport: travelerForm.defaultModeOfTransport || undefined,
-          extra_baggage_required: travelerForm.extraBaggageRequired,
-          photograph_url: travelerForm.photograph || undefined,
-          supporting_documents_url: travelerForm.supportingDocuments || undefined,
-          
-          // Train
-          train_preferred_class: travelerForm.trainPreferredClass || undefined,
-          train_berth_preference: travelerForm.trainBerthPreference || undefined,
-          train_meal_preference: travelerForm.trainMealPreference || undefined,
-          train_preferred_number: travelerForm.trainPreferredNumber || undefined,
-
-          // International
-          present_location_abroad: travelerForm.presentLocationAbroad || undefined,
-          assigned_plant_site: travelerForm.assignedPlantSite || undefined,
-          nearest_airport_india: travelerForm.nearestAirportIndia || undefined,
-          passport_number: travelerForm.passportNumber || undefined,
-          passport_issue_date: travelerForm.passportIssueDate || undefined,
-          passport_expiry: travelerForm.passportExpiryDate || undefined,
-          passport_front_page_url: travelerForm.passportFrontPage || undefined,
-          passport_back_page_url: travelerForm.passportBackPage || undefined,
-          offer_letter_url: travelerForm.offerLetter || undefined,
-          polio_vaccine_status: travelerForm.polioVaccineStatus || undefined,
-          polio_certificate_expiry: travelerForm.polioCertificateExpiry || undefined,
-          yfv_status: travelerForm.yfvStatus || undefined,
-          yfv_certificate_expiry: travelerForm.yfvCertificateExpiry || undefined,
-          visa_number: travelerForm.visaNumber || undefined,
-          visa_expiry_date: travelerForm.visaExpiryDate || undefined,
-          visa_country: travelerForm.visaCountry || undefined,
-          profile_completed: true
-        };
-
-        if (isCompletingExisting) {
-          if (onUpdateEmployee) {
-            await onUpdateEmployee(employeePayload);
-          } else {
-            const res = await fetch(`/api/employees/${employeePayload.employee_code}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(employeePayload)
-            });
-            if (!res.ok) throw new Error("Failed to update employee");
-          }
-          setIsCompletingExisting(false);
-          setUseExistingEmployee(true);
-          setSelectedEmpCode(employeePayload.employee_code);
-        } else if (!useExistingEmployee) {
-          if (onAddEmployee) {
-            await onAddEmployee(employeePayload);
-          } else {
-            const res = await fetch("/api/employees", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(employeePayload)
-            });
-            if (!res.ok) throw new Error("Failed to add employee");
-          }
-          setSelectedEmpCode(empCode);
-          setUseExistingEmployee(true);
-        }
-      } catch (err: any) {
-        alert("Failed to save traveler profile: " + err.message);
-        setIsSavingEmployee(false);
-        return;
-      }
-      setIsSavingEmployee(false);
-    }
-
-    // Auto-propagate traveler profile defaults to Step 2 Travel Particulars
-    let defaultApprover = "";
-    let defaultTitle = "";
-    let defaultPlant = travelForm.plant;
-    let defaultMeal = travelForm.mealPreference;
-
-    if (useExistingEmployee) {
-      const emp = employees.find(e => e.employee_code === selectedEmpCode);
-      if (emp) {
-        defaultApprover = emp.default_travel_approver || "";
-        defaultTitle = emp.approver_designation || "";
-        if (emp.assigned_plant_site) {
-          const siteUpper = emp.assigned_plant_site.toUpperCase();
-          if (["HIPL", "RSIPL", "HRM", "SUNAGROW", "RICEFIELD"].includes(siteUpper)) {
-            defaultPlant = siteUpper;
-          }
-        }
-        if (travelForm.type === "TRAIN" && emp.train_preferred_class) {
-          if (emp.train_meal_preference === "Veg") defaultMeal = "VEG";
-          else if (emp.train_meal_preference === "Non-Veg") defaultMeal = "NON_VEG";
-          else if (emp.train_meal_preference === "Jain Meal") defaultMeal = "OTHER";
-        }
-      }
-    } else {
-      defaultApprover = travelerForm.defaultTravelApprover;
-      defaultTitle = travelerForm.approverDesignation;
-      if (travelerForm.assignedPlantSite) {
-        const siteUpper = travelerForm.assignedPlantSite.toUpperCase();
-        if (["HIPL", "RSIPL", "HRM", "SUNAGROW", "RICEFIELD"].includes(siteUpper)) {
-          defaultPlant = siteUpper;
-        }
-      }
-      if (travelForm.type === "TRAIN") {
-        if (travelerForm.trainMealPreference === "Veg") defaultMeal = "VEG";
-        else if (travelerForm.trainMealPreference === "Non-Veg") defaultMeal = "NON_VEG";
-        else if (travelerForm.trainMealPreference === "Jain Meal") defaultMeal = "OTHER";
-      }
-    }
-
-    setTravelForm(prev => ({
-      ...prev,
-      travelApprover: prev.travelApprover || defaultApprover,
-      approverTitle: prev.approverTitle || defaultTitle,
-      plant: prev.plant === "HIPL" && defaultPlant !== "HIPL" ? defaultPlant : prev.plant,
-      mealPreference: prev.mealPreference === "VEG" && defaultMeal !== "VEG" ? defaultMeal : prev.mealPreference
-    }));
-
-    setCurrentStep(2);
-  };
-
-  const prevStep = () => {
-    if (currentStep === 2) {
-      setCurrentStep(1);
-    } else if (currentStep === 1 && isCompletingExisting) {
-      setUseExistingEmployee(true);
-      setIsCompletingExisting(false);
-      setCompletingEmpCode("");
-    } else {
-      onCancel();
     }
   };
 
@@ -662,9 +437,6 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
     const allErrors = {...s1Errors, ...s2Errors};
     if (Object.keys(allErrors).length > 0) {
       setFormErrors(allErrors);
-      // If errors are in the other step, don't necessarily switch, but usually we should
-      if (Object.keys(s2Errors).length > 0) setCurrentStep(1);
-      else if (Object.keys(s1Errors).length > 0) setCurrentStep(2);
       return;
     }
 
@@ -761,14 +533,26 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
         targetEmployeeCode = empCode;
       }
 
+      const resolvedPhone = useExistingEmployee 
+        ? (employees.find(e => e.employee_code === selectedEmpCode)?.phone || "N/A")
+        : (travelerForm.phone || "N/A");
+      
+      const resolvedApprover = useExistingEmployee
+        ? (employees.find(e => e.employee_code === selectedEmpCode)?.default_travel_approver || "Rohit ji")
+        : (travelerForm.defaultTravelApprover || "Rohit ji");
+
+      const resolvedApproverTitle = useExistingEmployee
+        ? (employees.find(e => e.employee_code === selectedEmpCode)?.approver_designation || "Chief Operating Officer")
+        : (travelerForm.approverDesignation || "Chief Operating Officer");
+
       // Prepare Travel Indent payload
       const indentPayload: Partial<TravelIndent> = {
         travel_type: travelForm.type,
         gst_applicable: travelForm.gstApplicable,
         priority: travelForm.priority,
         travel_date: travelForm.date || new Date().toISOString().split("T")[0],
-        wp_number: travelForm.wpNumber || "N/A",
-        nearest_boarding_point: travelForm.nearestBoardingPoint.trim() || "TBD",
+        wp_number: resolvedPhone,
+        nearest_boarding_point: travelForm.from.trim() || "TBD",
         luggage: travelForm.luggage || "Standard (15kg)",
         visa_type: travelForm.visaType === "OTHER" ? travelForm.visaTypeOther : travelForm.visaType,
         seat_preference: travelForm.seatPreference === "OTHER" ? travelForm.seatPreferenceOther : travelForm.seatPreference,
@@ -778,8 +562,8 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
         purpose: travelForm.purpose.trim() || "Business Travel",
         employee_code: targetEmployeeCode,
         plant: travelForm.plant || "HIPL",
-        travel_approver: travelForm.travelApprover || "Rohit ji",
-        approver_title: travelForm.approverTitle || "Chief Operating Officer",
+        travel_approver: resolvedApprover,
+        approver_title: resolvedApproverTitle,
         indent_raiser: travelForm.indentRaiser || "Travel Planner"
       };
 
@@ -800,20 +584,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
 
   return (
     <div id="indent-form-panel" className="max-w-4xl mx-auto text-left">
-      {/* Form Header */}
-      <div className="bg-slate-950 px-8 py-6 text-white flex justify-between items-center rounded-3xl shadow-sm">
-        <div>
-          <h2 id="form-heading" className="text-2xl font-black uppercase tracking-tighter">New Travel Request</h2>
-          <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mt-1">Hemraj Group Personal Travel Desk</p>
-        </div>
-        <button 
-          onClick={onCancel}
-          id="btn-close-form"
-          className="text-white hover:text-orange-500 hover:bg-slate-900 p-2.5 rounded-full border border-slate-800 transition animate-hover"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
+
 
       <form onSubmit={handleFormSubmission} className="py-6 space-y-8">
         
@@ -832,14 +603,14 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
           </div>
         )}
 
-        <div className={currentStep === 1 ? "space-y-8" : "hidden"}>
+        <div className="space-y-8">
           {/* SECTION 1: TRAVELER ASSIGNMENT */}
           <div>
-            <div className="flex items-center gap-3 border-b-2 border-slate-200 pb-3 mb-6">
-              <div className="w-8 h-8 bg-slate-950 text-orange-500 rounded flex items-center justify-center font-black text-xs leading-none">
+            <div className="flex items-center gap-3 border-b border-slate-200 pb-4 mb-6">
+              <div className="w-7 h-7 bg-orange-100 text-orange-700 rounded-lg flex items-center justify-center font-extrabold text-sm leading-none shrink-0">
                 1
               </div>
-              <h3 className="text-base font-black text-slate-900 uppercase tracking-wider">User Selection (Traveler Assignment)</h3>
+              <h3 className="text-lg font-extrabold tracking-tight text-slate-900">Traveler Assignment & Registration</h3>
             </div>
 
             {/* Travel Category */}
@@ -887,7 +658,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                       return copy;
                     });
                   }}
-                  className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${useExistingEmployee ? "bg-white text-teal-900 shadow-xs border border-slate-100" : "text-slate-500 hover:text-slate-800"}`}
+                  className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${useExistingEmployee ? "bg-white text-orange-600 shadow-xs border border-slate-100" : "text-slate-500 hover:text-slate-800"}`}
                 >
                   Select Existing Traveler
                 </button>
@@ -904,7 +675,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                       });
                     }
                   }}
-                  className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${!useExistingEmployee ? "bg-white text-teal-900 shadow-xs border border-slate-100" : "text-slate-500 hover:text-slate-800"}`}
+                  className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${!useExistingEmployee ? "bg-white text-orange-600 shadow-xs border border-slate-100" : "text-slate-500 hover:text-slate-800"}`}
                 >
                   Register New Profile
                 </button>
@@ -921,13 +692,85 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                   id="input-selected-empcode"
                   value={selectedEmpCode}
                   onChange={(e) => {
-                    setSelectedEmpCode(e.target.value);
+                    const code = e.target.value;
+                    setSelectedEmpCode(code);
                     if (formErrors.selectedEmpCode) {
                       setFormErrors(prev => {
                         const copy = { ...prev };
                         delete copy.selectedEmpCode;
                         return copy;
                       });
+                    }
+
+                    const emp = employees.find(x => x.employee_code === code);
+                    if (emp) {
+                      // 1. Check if profile completion is needed
+                      if (!emp.profile_completed) {
+                        setIsCompletingExisting(true);
+                        setCompletingEmpCode(code);
+                        setTravelerForm({
+                          employeeId: emp.employee_code,
+                          aadharPanNumber: emp.aadhar_pan_number || "",
+                          name: emp.name,
+                          email: emp.email,
+                          phone: emp.phone,
+                          designation: emp.designation,
+                          department: emp.department || "Purchase",
+                          defaultTravelApprover: emp.default_travel_approver || "Rohit ji",
+                          approverDesignation: emp.approver_designation || "Chief Operating Officer",
+                          costCentre: emp.cost_centre || "",
+                          defaultBillingCurrency: (emp.default_billing_currency as BillingCurrency) || "INR",
+                          baseCity: emp.native_city || "",
+                          nearestAirport: emp.nearest_airport || "",
+                          nearestRailwayStation: emp.nearest_railway_station || "",
+                          defaultModeOfTransport: emp.default_mode_of_transport || "Flight",
+                          extraBaggageRequired: emp.extra_baggage_required || false,
+                          photograph: emp.photograph_url || "",
+                          supportingDocuments: emp.supporting_documents_url || "",
+                          trainPreferredClass: emp.train_preferred_class || "3AC",
+                          trainBerthPreference: emp.train_berth_preference || "No Preference",
+                          trainMealPreference: emp.train_meal_preference || "No Meal",
+                          trainPreferredNumber: emp.train_preferred_number || "",
+                          presentLocationAbroad: emp.present_location_abroad || "",
+                          assignedPlantSite: emp.assigned_plant_site || "Sunagrow",
+                          nearestAirportIndia: emp.nearest_airport_india || "",
+                          passportNumber: emp.passport_number || "",
+                          passportIssueDate: emp.passport_issue_date || "",
+                          passportExpiryDate: emp.passport_expiry || "",
+                          passportFrontPage: emp.passport_front_page_url || "",
+                          passportBackPage: emp.passport_back_page_url || "",
+                          offerLetter: emp.offer_letter_url || "",
+                          polioVaccineStatus: emp.polio_vaccine_status || "Vaccinated",
+                          polioCertificateExpiry: emp.polio_certificate_expiry || "",
+                          yfvStatus: emp.yfv_status || "Vaccinated",
+                          yfvCertificateExpiry: emp.yfv_certificate_expiry || "",
+                          visaNumber: emp.visa_number || "",
+                          visaExpiryDate: emp.visa_expiry_date || "",
+                          visaCountry: emp.visa_country || ""
+                        });
+                      } else {
+                        setIsCompletingExisting(false);
+                        setCompletingEmpCode("");
+                      }
+
+                      // 2. Dynamic propagation of defaults
+                      let defaultMeal = "VEG";
+                      if (emp.train_meal_preference === "Veg") defaultMeal = "VEG";
+                      else if (emp.train_meal_preference === "Non-Veg") defaultMeal = "NON_VEG";
+                      else if (emp.train_meal_preference === "Jain Meal") defaultMeal = "OTHER";
+
+                      setTravelForm(prev => ({
+                        ...prev,
+                        travelApprover: emp.default_travel_approver || "Rohit ji",
+                        approverTitle: emp.approver_designation || "Chief Operating Officer",
+                        plant: emp.assigned_plant_site && ["HIPL", "RSIPL", "HRM", "SUNAGROW", "RICEFIELD"].includes(emp.assigned_plant_site.toUpperCase())
+                          ? emp.assigned_plant_site.toUpperCase()
+                          : prev.plant,
+                        mealPreference: defaultMeal
+                      }));
+                    } else {
+                      setIsCompletingExisting(false);
+                      setCompletingEmpCode("");
                     }
                   }}
                   className={`w-full max-w-lg bg-slate-50 border ${formErrors.selectedEmpCode ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2.5 text-sm`}
@@ -1072,7 +915,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   <div>
                     <label htmlFor="input-traveler-employeeId" className="block text-xs font-bold text-slate-600 uppercase mb-1 font-sans tracking-wider">
-                      Employee ID Code *
+                      Employee ID Code
                     </label>
                     <input
                       id="input-traveler-employeeId"
@@ -1090,7 +933,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
 
                   <div>
                     <label htmlFor="input-traveler-aadharPanNumber" className="block text-xs font-bold text-slate-600 uppercase mb-1 font-sans tracking-wider">
-                      Aadhar/PAN Number *
+                      Aadhar/PAN Number
                     </label>
                     <input
                       id="input-traveler-aadharPanNumber"
@@ -1325,7 +1168,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                           <div>
                             <label htmlFor="input-traveler-baseCity" className="block text-xs font-bold text-slate-500 mb-1">
-                              Base City *
+                              Base City
                             </label>
                             <input
                               id="input-traveler-baseCity"
@@ -1627,7 +1470,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                           <div>
                             <label htmlFor="input-traveler-baseCity-train" className="block text-xs font-bold text-slate-500 mb-1">
-                              Base City *
+                              Base City
                             </label>
                             <input
                               id="input-traveler-baseCity-train"
@@ -1645,7 +1488,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
 
                           <div>
                             <label htmlFor="input-traveler-nearestRailwayStation-train" className="block text-xs font-bold text-slate-500 mb-1">
-                              Nearest Railway Station *
+                              Nearest Railway Station
                             </label>
                             <input
                               id="input-traveler-nearestRailwayStation-train"
@@ -2109,14 +1952,14 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
           </div>
         </div>
 
-        <div className={currentStep === 2 ? "space-y-8" : "hidden"}>
+        <div className="space-y-8 pt-8 border-t-2 border-slate-200 mt-8">
           {/* SECTION 2: TRAVEL PARTICULARS */}
           <div>
-            <div className="flex items-center gap-3 border-b-2 border-slate-200 pb-3 mb-6">
-              <div className="w-8 h-8 bg-slate-950 text-orange-500 rounded flex items-center justify-center font-black text-xs leading-none">
+            <div className="flex items-center gap-3 border-b border-slate-200 pb-4 mb-6">
+              <div className="w-7 h-7 bg-orange-100 text-orange-700 rounded-lg flex items-center justify-center font-extrabold text-sm leading-none shrink-0">
                 2
               </div>
-              <h3 className="text-base font-black text-slate-900 uppercase tracking-wider">Travel Particulars</h3>
+              <h3 className="text-lg font-extrabold tracking-tight text-slate-900">Travel Particulars & Logistics</h3>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -2138,24 +1981,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
               </select>
             </div>
 
-            {/* Priority Level */}
-            <div>
-              <label htmlFor="input-priority" className="block text-xs font-bold text-slate-600 uppercase mb-1.5 font-sans tracking-wider">
-                Priority Level *
-              </label>
-              <select
-                id="input-priority"
-                name="priority"
-                value={travelForm.priority}
-                onChange={handleTravelFormChange}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/25 focus:border-teal-600 transition font-medium"
-              >
-                <option value="LOW">LOW</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="HIGH">HIGH</option>
-                <option value="CRITICAL">CRITICAL</option>
-              </select>
-            </div>
+
 
             {/* Plant Site selection */}
             <div>
@@ -2195,40 +2021,7 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
               )}
             </div>
 
-            {/* Passenger W/P Number */}
-            <div>
-              <label htmlFor="input-wpNumber" className="block text-xs font-bold text-slate-600 uppercase mb-1.5 font-sans tracking-wider">
-                Passenger W/P / WhatsApp No.
-              </label>
-              <input
-                id="input-wpNumber"
-                type="text"
-                name="wpNumber"
-                placeholder="e.g. WP-4835 or WhatsApp Code"
-                value={travelForm.wpNumber}
-                onChange={handleTravelFormChange}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/25 transition"
-              />
-            </div>
 
-            {/* Nearest Boarding Pt. */}
-            <div>
-              <label htmlFor="input-nearestBoardingPoint" className="block text-xs font-bold text-slate-600 uppercase mb-1.5 font-sans tracking-wider">
-                Nearest Boarding Pt. *
-              </label>
-              <input
-                id="input-nearestBoardingPoint"
-                type="text"
-                name="nearestBoardingPoint"
-                placeholder="e.g. Juhu Office, Lagos Suite"
-                value={travelForm.nearestBoardingPoint}
-                onChange={handleTravelFormChange}
-                className={`w-full bg-slate-50 border ${formErrors.nearestBoardingPoint ? "border-rose-400" : "border-slate-200"} rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/25 transition`}
-              />
-              {formErrors.nearestBoardingPoint && (
-                <span className="text-[10px] font-medium text-rose-500 mt-1 block">{formErrors.nearestBoardingPoint}</span>
-              )}
-            </div>
 
             {/* Luggage Allowance */}
             <div>
@@ -2393,16 +2186,8 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
             )}
           </div>
           
-          {/* Section 2 additions: Approver & Raiser */}
+          {/* Section 2 additions: Raiser */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-6 border-2 border-slate-100 p-5 rounded-2xl bg-teal-50/30">
-            <div>
-              <label htmlFor="input-travelApprover" className="block text-xs font-bold text-slate-600 uppercase mb-1.5 font-sans tracking-wider">Travel Approver</label>
-              <input type="text" id="input-travelApprover" name="travelApprover" value={travelForm.travelApprover} onChange={handleTravelFormChange} className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm" placeholder="e.g. Rohit ji" />
-            </div>
-            <div>
-              <label htmlFor="input-approverTitle" className="block text-xs font-bold text-slate-600 uppercase mb-1.5 font-sans tracking-wider">Approver Title</label>
-              <input type="text" id="input-approverTitle" name="approverTitle" value={travelForm.approverTitle} onChange={handleTravelFormChange} className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm" placeholder="e.g. COO / VP" />
-            </div>
             <div>
               <label htmlFor="input-indentRaiser" className="block text-xs font-bold text-slate-600 uppercase mb-1.5 font-sans tracking-wider">Indent Raiser</label>
               <input type="text" id="input-indentRaiser" name="indentRaiser" value={travelForm.indentRaiser} onChange={handleTravelFormChange} className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm" placeholder="e.g. Employee Name" />
@@ -2422,53 +2207,24 @@ export default function IndentForm({ employees, draftId, onSubmit, onCancel, onA
             Cancel
           </button>
           <div className="flex gap-4">
-            {(currentStep === 2 || (currentStep === 1 && isCompletingExisting)) && (
-              <button
-                type="button"
-                onClick={prevStep}
-                className="px-6 py-3 text-xs font-black text-slate-600 uppercase tracking-widest hover:text-slate-900 duration-150"
-              >
-                Back
-              </button>
-            )}
-            {currentStep === 1 && (
-              <button
-                id="btn-nav-next"
-                type="button"
-                disabled={isSavingEmployee}
-                onClick={nextStep}
-                className="px-6 h-11 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-md ml-auto flex items-center gap-2"
-              >
-                {isSavingEmployee ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving Profile...
-                  </>
-                ) : (
-                  "Next Step"
-                )}
-              </button>
-            )}
-            {currentStep === 2 && (
-              <button
-                id="btn-form-submit"
-                type="submit"
-                disabled={isSubmitting}
-                className="bg-teal-600 hover:bg-teal-700 text-white font-black text-xs uppercase tracking-widest px-8 py-3.5 rounded-full shadow-lg flex items-center gap-2 duration-150 disabled:bg-teal-600/50"
-              >
-                {isSubmitting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                    Submitting Desk Indent...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 text-white" />
-                    Submit Indent Request
-                  </>
-                )}
-              </button>
-            )}
+            <button
+              id="btn-form-submit"
+              type="submit"
+              disabled={isSubmitting}
+              className="bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs uppercase tracking-wider px-8 py-3.5 rounded-xl shadow-md flex items-center gap-2 duration-150 disabled:bg-orange-650/50"
+            >
+              {isSubmitting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                  Submitting Desk Indent...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 text-white" />
+                  Submit Indent Request
+                </>
+              )}
+            </button>
           </div>
         </div>
       </form>
